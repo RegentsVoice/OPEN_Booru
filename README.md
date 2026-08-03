@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="https://github.com/RegentsVoice/OPEN_Booru/blob/main/public/logo.png" alt="OPEN Booru" width="200" />
+</div>
+
 # OPEN Booru
 
 **Language / Язык:** [English](#english) · [Русский](#русский)
