@@ -34,7 +34,7 @@ Default URL after start: [http://localhost:3001](http://localhost:3001)
 
 | Login |
 |:-----:|
-| ![Login](https://github.com/user-attachments/assets/6f58a4fd-4870-4e0f-8461-fd5c753ab210) |
+| ![Login](https://github.com/user-attachments/assets/386faa78-77fa-4172-ab7f-8f67247b8106) |
 
 </details>
 
@@ -294,7 +294,7 @@ MIT
 
 | Вход |
 |:----:|
-| ![Вход](https://github.com/user-attachments/assets/6f58a4fd-4870-4e0f-8461-fd5c753ab210) |
+| ![Вход](https://github.com/user-attachments/assets/386faa78-77fa-4172-ab7f-8f67247b8106) |
 
 </details>
 
