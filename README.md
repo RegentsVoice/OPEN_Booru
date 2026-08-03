@@ -1,6 +1,6 @@
-<div align="center">
-  <img src="https://github.com/RegentsVoice/OPEN_Booru/blob/main/public/logo.png" alt="OPEN Booru" width="200" />
-</div>
+<p align="center" style="margin: 0;">
+  <img src="https://github.com/RegentsVoice/OPEN_Booru/blob/main/public/logo.png" alt="OPEN Booru" width="200" style="display: block; margin: 0 auto;" />
+</p>
 
 # OPEN Booru
 
