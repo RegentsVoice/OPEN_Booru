@@ -145,24 +145,18 @@ http://localhost:3001
 
 ```
 OPEN_Booru/
-├── public/           # Frontend (HTML/CSS/JS) + logo
+├── public/
 ├── server/
-│   ├── index.js      # Entry point
+│   ├── index.js
 │   ├── config.js
-│   ├── db/           # Database layer (sql.js)
-│   ├── routes/       # API routes
-│   ├── services/     # Business logic (encryption, import, etc.)
+│   ├── db/
+│   ├── routes/
+│   ├── services/
 │   └── lib/
-├── scripts/          # Install scripts (Linux / Windows)
+├── scripts/
 ├── screenshots/
 ├── package.json
 └── README.md
-```
-
-### Development
-
-```bash
-npm run dev   # starts with --watch
 ```
 
 ### License
@@ -304,24 +298,18 @@ http://localhost:3001
 
 ```
 OPEN_Booru/
-├── public/           # Фронтенд (HTML/CSS/JS) + логотип
+├── public/
 ├── server/
-│   ├── index.js      # Точка входа
+│   ├── index.js
 │   ├── config.js
-│   ├── db/           # Работа с БД (sql.js)
-│   ├── routes/       # API-маршруты
-│   ├── services/     # Бизнес-логика (шифрование, импорт и т.д.)
+│   ├── db/
+│   ├── routes/
+│   ├── services/
 │   └── lib/
-├── scripts/          # Скрипты установки (Linux / Windows)
+├── scripts/
 ├── screenshots/
 ├── package.json
 └── README.md
-```
-
-### Разработка
-
-```bash
-npm run dev   # запуск с --watch
 ```
 
 ### Лицензия
