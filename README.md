@@ -4,7 +4,9 @@
 
 # OPEN Booru
 
-Encrypted self-hosted gallery — images, video, GIF.  
+**Encrypted self-hosted personal media gallery** — images, videos, GIFs.  
+Private. Local. Yours.
+
 [English](#english) · [Русский](#русский)
 
 ---
@@ -13,69 +15,69 @@ Encrypted self-hosted gallery — images, video, GIF.
 
 ## English
 
-AES per user · tags · favorites · roles · import from boorus · UI in 8 languages.
+OPEN Booru is a lightweight, self-hosted media gallery designed for personal use.  
+All media is encrypted **per user** with AES. You fully control your data — nothing leaves your server.
 
-**Node.js ≥ 26**
+### Key Features
+
+| Feature | Description |
+|---------|-------------|
+| **Per-user AES encryption** | Each user’s media is encrypted with their own key. Even the server admin cannot read other users’ files without the password. |
+| **Tags & search** | Full tagging system with fast search and filtering. |
+| **Favorites** | Mark and quickly access your favorite posts. |
+| **Roles & multi-user** | Support for multiple users with different roles (admin / user). |
+| **Booru import** | One-click import from popular imageboards (see list below). |
+| **Multilingual UI** | Interface available in 8 languages. |
+| **Images + Video + GIF** | Native support for common image formats, animated GIFs and videos. |
+| **Modern web UI** | Clean, responsive gallery, viewer, upload and settings pages. |
+| **SQLite backend** | Zero external database dependency (uses `sql.js`). |
+| **Lightweight** | Pure Node.js + Express. Easy to run on a VPS, home server or even a Raspberry Pi. |
+
+### Supported Booru Import Sources
+
+- Gelbooru
+- Rule34
+- Realbooru
+- Xbooru
+- Hypnohub
+- TBIB
+- Safebooru
+- Derpibooru
+- Furbooru
+- Ponybooru
+- Danbooru
+- e621
+- Yande.re
+- Konachan
+
+### Requirements
+
+- **Node.js ≥ 18** (recommended ≥ 20)
+- `git` and `curl` (for automatic install)
+- ~50–100 MB disk space for the application itself (media storage is separate)
+
+> **Note:** The original README mentioned Node.js ≥ 26. This appears to be a typo — the project works with Node.js 18+.
+
+### Screenshots
 
 <details>
-<summary><b>Screenshots</b></summary>
+<summary>Click to expand screenshots</summary>
 
-<br>
+| Gallery | Viewer | Upload |
+|:---:|:---:|:---:|
+| ![](screenshots/gallery.png) | ![](screenshots/viewer.png) | ![](screenshots/upload.png) |
 
-<details>
-<summary>Gallery</summary>
-
-![Gallery](screenshots/gallery.png)
+| Settings | Import | Login |
+|:---:|:---:|:---:|
+| ![](screenshots/settings.png) | ![](screenshots/import.png) | ![](screenshots/login.png) |
 
 </details>
 
-<details>
-<summary>Viewer</summary>
+### Installation
 
-![Viewer](screenshots/viewer.png)
+#### 1. Automatic (recommended)
 
-</details>
-
-<details>
-<summary>Upload</summary>
-
-![Upload](screenshots/upload.png)
-
-</details>
-
-<details>
-<summary>Settings</summary>
-
-![Settings](screenshots/settings.png)
-
-</details>
-
-<details>
-<summary>Import</summary>
-
-![Import](screenshots/import.png)
-
-</details>
-
-<details>
-<summary>Login</summary>
-
-![Login](screenshots/login.png)
-
-</details>
-
-</details>
-
-### Booru import
-
-Gelbooru · Rule34 · Realbooru · Xbooru · Hypnohub · TBIB · Safebooru · Derpibooru · Furbooru · Ponybooru · Danbooru · e621 · Yande.re · Konachan
-
-### Install
-
-<details>
-<summary>Automatic</summary>
-
-**Linux** (Arch / Ubuntu / Debian / Fedora):
+**Linux** (Arch / Ubuntu / Debian / Fedora / derivatives):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/RegentsVoice/OPEN_Booru/main/scripts/install-linux.sh | bash
@@ -89,27 +91,27 @@ irm https://raw.githubusercontent.com/RegentsVoice/OPEN_Booru/main/scripts/insta
 cd $HOME\OPEN_Booru; npm start
 ```
 
-</details>
+The installer will:
+- Install Node.js if needed
+- Clone the repository into `~/OPEN_Booru` (or `$HOME\OPEN_Booru`)
+- Download the required `spark-md5.min.js`
+- Run `npm install`
 
-<details>
-<summary>Manual</summary>
+#### 2. Manual
 
 ```bash
-git clone https://github.com/RegentsVoice/OPEN_Booru.git && cd OPEN_Booru
+git clone https://github.com/RegentsVoice/OPEN_Booru.git
+cd OPEN_Booru
 mkdir -p public/lib
 curl -fsSL -o public/lib/spark-md5.min.js https://cdn.jsdelivr.net/npm/spark-md5@3.0.2/spark-md5.min.js
-npm install && npm start
+npm install
+npm start
 ```
 
-Node: [nodejs.org](https://nodejs.org/) · `winget install OpenJS.NodeJS.LTS` · `pacman -S nodejs npm` · `dnf install nodejs npm`
-
-</details>
-
-<details>
-<summary>Docker</summary>
+#### 3. Docker
 
 ```bash
-# spark-md5.min.js must exist in public/lib/
+# Make sure spark-md5.min.js exists in public/lib/ first
 docker build -t open-booru -f - . <<'DF'
 FROM node:20-bookworm-slim
 WORKDIR /app
@@ -119,14 +121,55 @@ COPY . .
 EXPOSE 3001
 CMD ["node", "server/index.js"]
 DF
+
 docker run -d --name open-booru -p 3001:3001 \
-  -v open-booru-data:/app/database -v open-booru-media:/app/media \
-  -v open-booru-logs:/app/logs -e PORT=3001 open-booru
+  -v open-booru-data:/app/database \
+  -v open-booru-media:/app/media \
+  -v open-booru-logs:/app/logs \
+  -e PORT=3001 \
+  open-booru
 ```
 
-</details>
+### Usage
 
-### License [MIT](https://github.com/RegentsVoice/OPEN_Booru/blob/main/LICENSE)
+After starting the server:
+
+```
+http://localhost:3001
+```
+
+1. Open the address in your browser.
+2. Create the first account (it becomes admin).
+3. Upload media or import from supported boorus.
+4. Organize with tags, favorites and roles.
+
+### Project Structure
+
+```
+OPEN_Booru/
+├── public/           # Frontend (HTML/CSS/JS) + logo
+├── server/
+│   ├── index.js      # Entry point
+│   ├── config.js
+│   ├── db/           # Database layer (sql.js)
+│   ├── routes/       # API routes
+│   ├── services/     # Business logic (encryption, import, etc.)
+│   └── lib/
+├── scripts/          # Install scripts (Linux / Windows)
+├── screenshots/
+├── package.json
+└── README.md
+```
+
+### Development
+
+```bash
+npm run dev   # starts with --watch
+```
+
+### License
+
+[MIT](https://github.com/RegentsVoice/OPEN_Booru/blob/main/LICENSE)
 
 ---
 
@@ -134,102 +177,103 @@ docker run -d --name open-booru -p 3001:3001 \
 
 ## Русский
 
-Зашифрованная локальная галерея — фото, видео, GIF.  
-AES · теги · избранное · роли · импорт с борд · 8 языков UI.
+**OPEN Booru** — лёгкая self-hosted галерея для личного использования.  
+Все медиа шифруются **отдельно для каждого пользователя** алгоритмом AES. Вы полностью контролируете свои данные.
 
-**Node.js ≥ 26**
+### Основные возможности
+
+| Возможность | Описание |
+|-------------|----------|
+| **Шифрование AES на пользователя** | Медиа каждого пользователя шифруется своим ключом. Даже администратор сервера не может прочитать чужие файлы без пароля. |
+| **Теги и поиск** | Полноценная система тегов с быстрым поиском и фильтрацией. |
+| **Избранное** | Отмечайте и быстро находите любимые посты. |
+| **Роли и мультипользователь** | Поддержка нескольких пользователей с разными ролями (admin / user). |
+| **Импорт с борд** | Импорт одним кликом с популярных имиджборд (список ниже). |
+| **Многоязычный интерфейс** | UI на 8 языках. |
+| **Изображения + Видео + GIF** | Поддержка обычных изображений, анимированных GIF и видео. |
+| **Современный веб-интерфейс** | Чистая и адаптивная галерея, просмотрщик, загрузка и настройки. |
+| **SQLite** | Без внешних баз данных (используется `sql.js`). |
+| **Лёгкий вес** | Чистый Node.js + Express. Легко запускается на VPS, домашнем сервере или даже Raspberry Pi. |
+
+### Поддерживаемые борды для импорта
+
+- Gelbooru
+- Rule34
+- Realbooru
+- Xbooru
+- Hypnohub
+- TBIB
+- Safebooru
+- Derpibooru
+- Furbooru
+- Ponybooru
+- Danbooru
+- e621
+- Yande.re
+- Konachan
+
+### Требования
+
+- **Node.js ≥ 18** (рекомендуется ≥ 20)
+- `git` и `curl` (для автоматической установки)
+- ~50–100 МБ места под само приложение (медиа хранится отдельно)
+
+> **Примечание:** В оригинальном README указано Node.js ≥ 26. Это, скорее всего, опечатка — проект работает с Node.js 18+.
+
+### Скриншоты
 
 <details>
-<summary><b>Скриншоты</b></summary>
+<summary>Нажмите, чтобы раскрыть</summary>
 
-<br>
+| Галерея | Просмотр | Загрузка |
+|:---:|:---:|:---:|
+| ![](screenshots/gallery.png) | ![](screenshots/viewer.png) | ![](screenshots/upload.png) |
 
-<details>
-<summary>Gallery</summary>
-
-![Gallery](screenshots/gallery.png)
-
-</details>
-
-<details>
-<summary>Viewer</summary>
-
-![Viewer](screenshots/viewer.png)
+| Настройки | Импорт | Вход |
+|:---:|:---:|:---:|
+| ![](screenshots/settings.png) | ![](screenshots/import.png) | ![](screenshots/login.png) |
 
 </details>
-
-<details>
-<summary>Upload</summary>
-
-![Upload](screenshots/upload.png)
-
-</details>
-
-<details>
-<summary>Settings</summary>
-
-![Settings](screenshots/settings.png)
-
-</details>
-
-<details>
-<summary>Import</summary>
-
-![Import](screenshots/import.png)
-
-</details>
-
-<details>
-<summary>Login</summary>
-
-![Login](screenshots/login.png)
-
-</details>
-
-</details>
-
-### Импорт
-
-Gelbooru · Rule34 · Realbooru · Xbooru · Hypnohub · TBIB · Safebooru · Derpibooru · Furbooru · Ponybooru · Danbooru · e621 · Yande.re · Konachan
 
 ### Установка
 
-<details>
-<summary>Автоматическая</summary>
+#### 1. Автоматическая (рекомендуется)
 
-**Linux** (Arch / Ubuntu / Debian / Fedora):
+**Linux** (Arch / Ubuntu / Debian / Fedora и производные):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/RegentsVoice/OPEN_Booru/main/scripts/install-linux.sh | bash
 cd ~/OPEN_Booru && npm start
 ```
 
-**Windows:**
+**Windows** (PowerShell):
 
 ```powershell
 irm https://raw.githubusercontent.com/RegentsVoice/OPEN_Booru/main/scripts/install-windows.ps1 | iex
 cd $HOME\OPEN_Booru; npm start
 ```
 
-</details>
+Установщик:
+- Установит Node.js при необходимости
+- Склонирует репозиторий в `~/OPEN_Booru`
+- Скачает `spark-md5.min.js`
+- Выполнит `npm install`
 
-<details>
-<summary>Ручная</summary>
+#### 2. Ручная
 
 ```bash
-git clone https://github.com/RegentsVoice/OPEN_Booru.git && cd OPEN_Booru
+git clone https://github.com/RegentsVoice/OPEN_Booru.git
+cd OPEN_Booru
 mkdir -p public/lib
 curl -fsSL -o public/lib/spark-md5.min.js https://cdn.jsdelivr.net/npm/spark-md5@3.0.2/spark-md5.min.js
-npm install && npm start
+npm install
+npm start
 ```
 
-</details>
-
-<details>
-<summary>Docker</summary>
+#### 3. Docker
 
 ```bash
-# spark-md5.min.js должен быть в public/lib/
+# Сначала убедитесь, что spark-md5.min.js лежит в public/lib/
 docker build -t open-booru -f - . <<'DF'
 FROM node:20-bookworm-slim
 WORKDIR /app
@@ -239,11 +283,51 @@ COPY . .
 EXPOSE 3001
 CMD ["node", "server/index.js"]
 DF
+
 docker run -d --name open-booru -p 3001:3001 \
-  -v open-booru-data:/app/database -v open-booru-media:/app/media \
-  -v open-booru-logs:/app/logs -e PORT=3001 open-booru
+  -v open-booru-data:/app/database \
+  -v open-booru-media:/app/media \
+  -v open-booru-logs:/app/logs \
+  -e PORT=3001 \
+  open-booru
 ```
 
-</details>
+### Использование
 
-### Лицензия [MIT](https://github.com/RegentsVoice/OPEN_Booru/blob/main/LICENSE)
+После запуска сервера откройте в браузере:
+
+```
+http://localhost:3001
+```
+
+1. Создайте первый аккаунт (он станет администратором).
+2. Загружайте медиа или импортируйте с поддерживаемых борд.
+3. Организуйте контент с помощью тегов, избранного и ролей.
+
+### Структура проекта
+
+```
+OPEN_Booru/
+├── public/           # Фронтенд (HTML/CSS/JS) + логотип
+├── server/
+│   ├── index.js      # Точка входа
+│   ├── config.js
+│   ├── db/           # Работа с БД (sql.js)
+│   ├── routes/       # API-маршруты
+│   ├── services/     # Бизнес-логика (шифрование, импорт и т.д.)
+│   └── lib/
+├── scripts/          # Скрипты установки (Linux / Windows)
+├── screenshots/
+├── package.json
+└── README.md
+```
+
+### Разработка
+
+```bash
+npm run dev   # запуск с --watch
+```
+
+### Лицензия
+
+[MIT](https://github.com/RegentsVoice/OPEN_Booru/blob/main/LICENSE)
