@@ -140,7 +140,7 @@ AES · теги · избранное · роли · импорт с борд ·
 **Node.js ≥ 26**
 
 <details>
-<summary><b>Скриншоты</b>)</summary>
+<summary><b>Скриншоты</b></summary>
 
 <br>
 
