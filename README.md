@@ -229,7 +229,7 @@ npm install && npm start
 <summary>Docker</summary>
 
 ```bash
-# spark-md5.min.js must exist in public/lib/
+# spark-md5.min.js должен быть в public/lib/
 docker build -t open-booru -f - . <<'DF'
 FROM node:20-bookworm-slim
 WORKDIR /app
