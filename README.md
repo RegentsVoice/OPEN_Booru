@@ -141,23 +141,6 @@ http://localhost:3001
 3. Upload media or import from supported boorus.
 4. Organize with tags, favorites and roles.
 
-### Project Structure
-
-```
-OPEN_Booru/
-├── public/
-├── server/
-│   ├── index.js
-│   ├── config.js
-│   ├── db/
-│   ├── routes/
-│   ├── services/
-│   └── lib/
-├── scripts/
-├── screenshots/
-├── package.json
-└── README.md
-```
 
 ### License
 
@@ -296,21 +279,6 @@ http://localhost:3001
 
 ### Структура проекта
 
-```
-OPEN_Booru/
-├── public/
-├── server/
-│   ├── index.js
-│   ├── config.js
-│   ├── db/
-│   ├── routes/
-│   ├── services/
-│   └── lib/
-├── scripts/
-├── screenshots/
-├── package.json
-└── README.md
-```
 
 ### Лицензия
 
