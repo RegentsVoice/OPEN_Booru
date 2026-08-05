@@ -56,8 +56,6 @@ All media is encrypted **per user** with AES. You fully control your data — no
 - `git` and `curl` (for automatic install)
 - ~50–100 MB disk space for the application itself (media storage is separate)
 
-> **Note:** The original README mentioned Node.js ≥ 26. This appears to be a typo — the project works with Node.js 18+.
-
 ### Screenshots
 
 <details>
@@ -217,8 +215,6 @@ npm run dev   # starts with --watch
 - **Node.js ≥ 18** (рекомендуется ≥ 20)
 - `git` и `curl` (для автоматической установки)
 - ~50–100 МБ места под само приложение (медиа хранится отдельно)
-
-> **Примечание:** В оригинальном README указано Node.js ≥ 26. Это, скорее всего, опечатка — проект работает с Node.js 18+.
 
 ### Скриншоты
 
