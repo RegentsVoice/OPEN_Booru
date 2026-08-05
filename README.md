@@ -18,11 +18,51 @@ AES per user · tags · favorites · roles · import from boorus · UI in 8 lang
 **Node.js ≥ 26**
 
 <details>
-<summary>Screenshots</summary>
+<summary><b>Screenshots</b></summary>
 
-| Gallery | Viewer | Upload | Settings | Import | Login |
-|:---:|:---:|:---:|:---:|:---:|
-| ![](screenshots/gallery.png) | ![](screenshots/viewer.png) | ![](screenshots/upload.png) | ![](screenshots/import.png) | ![](screenshots/settings.png) | ![](screenshots/login.png) |
+<br>
+
+<details>
+<summary>Gallery</summary>
+
+![Gallery](screenshots/gallery.png)
+
+</details>
+
+<details>
+<summary>Viewer</summary>
+
+![Viewer](screenshots/viewer.png)
+
+</details>
+
+<details>
+<summary>Upload</summary>
+
+![Upload](screenshots/upload.png)
+
+</details>
+
+<details>
+<summary>Settings</summary>
+
+![Settings](screenshots/settings.png)
+
+</details>
+
+<details>
+<summary>Import</summary>
+
+![Import](screenshots/import.png)
+
+</details>
+
+<details>
+<summary>Login</summary>
+
+![Login](screenshots/login.png)
+
+</details>
 
 </details>
 
@@ -100,11 +140,51 @@ AES · теги · избранное · роли · импорт с борд ·
 **Node.js ≥ 26**
 
 <details>
-<summary>Скриншоты</summary>
+<summary><b>Скриншоты</b>)</summary>
 
-| Галерея | Просмотр | Загрузка | Импорт | Настройки | Вход |
-|:---:|:---:|:---:|:---:|:---:|
-| ![](screenshots/gallery.png) | ![](screenshots/viewer.png) | ![](screenshots/upload.png) | ![](screenshots/import.png) | ![](screenshots/settings.png) | ![](screenshots/login.png) |
+<br>
+
+<details>
+<summary>Gallery</summary>
+
+![Gallery](screenshots/gallery.png)
+
+</details>
+
+<details>
+<summary>Viewer</summary>
+
+![Viewer](screenshots/viewer.png)
+
+</details>
+
+<details>
+<summary>Upload</summary>
+
+![Upload](screenshots/upload.png)
+
+</details>
+
+<details>
+<summary>Settings</summary>
+
+![Settings](screenshots/settings.png)
+
+</details>
+
+<details>
+<summary>Import</summary>
+
+![Import](screenshots/import.png)
+
+</details>
+
+<details>
+<summary>Login</summary>
+
+![Login](screenshots/login.png)
+
+</details>
 
 </details>
 
