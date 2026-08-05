@@ -25,7 +25,7 @@ All media is encrypted **per user** with AES. You fully control your data — no
 | **Per-user AES encryption** | Each user’s media is encrypted with their own key. Even the server admin cannot read other users’ files without the password. |
 | **Tags & search** | Full tagging system with fast search and filtering. |
 | **Favorites** | Mark and quickly access your favorite posts. |
-| **Roles & multi-user** | Support for multiple users with different roles (admin / user). |
+| **Roles & multi-user** | Support for multiple users with different roles (owner / admin / user). |
 | **Booru import** | One-click import from popular imageboards (see list below). |
 | **Multilingual UI** | Interface available in 8 languages. |
 | **Images + Video + GIF** | Native support for common image formats, animated GIFs and videos. |
@@ -162,7 +162,7 @@ http://localhost:3001
 | **Шифрование AES на пользователя** | Медиа каждого пользователя шифруется своим ключом. Даже администратор сервера не может прочитать чужие файлы без пароля. |
 | **Теги и поиск** | Полноценная система тегов с быстрым поиском и фильтрацией. |
 | **Избранное** | Отмечайте и быстро находите любимые посты. |
-| **Роли и мультипользователь** | Поддержка нескольких пользователей с разными ролями (admin / user). |
+| **Роли и мультипользователь** | Поддержка нескольких пользователей с разными ролями ( owner / admin / user). |
 | **Импорт с борд** | Импорт одним кликом с популярных имиджборд (список ниже). |
 | **Многоязычный интерфейс** | UI на 8 языках. |
 | **Изображения + Видео + GIF** | Поддержка обычных изображений, анимированных GIF и видео. |
@@ -276,8 +276,6 @@ http://localhost:3001
 1. Создайте первый аккаунт (он станет администратором).
 2. Загружайте медиа или импортируйте с поддерживаемых борд.
 3. Организуйте контент с помощью тегов, избранного и ролей.
-
-### Структура проекта
 
 
 ### Лицензия
