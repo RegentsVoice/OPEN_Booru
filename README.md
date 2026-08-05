@@ -139,7 +139,7 @@ http://localhost:3001
 1. Open the address in your browser.
 2. Create the first account (it becomes admin).
 3. Upload media or import from supported boorus.
-4. Organize with tags, favorites and roles.
+4. Organize with tags and favorites.
 
 
 ### License
@@ -275,7 +275,7 @@ http://localhost:3001
 
 1. Создайте первый аккаунт (он станет администратором).
 2. Загружайте медиа или импортируйте с поддерживаемых борд.
-3. Организуйте контент с помощью тегов, избранного и ролей.
+3. Организуйте контент с помощью тегов и избранного.
 
 
 ### Лицензия
