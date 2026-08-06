@@ -23,6 +23,7 @@ All media is encrypted **per user** with AES. You fully control your data — no
 | Feature | Description |
 |---------|-------------|
 | **Per-user AES encryption** | Each user’s media is encrypted with their own key. Even the server admin cannot read other users’ files without the password. |
+| **Duplicate detection** | CLIP embeddings + dHash frame matching for images, video and GIF (including gif↔mp4). Tunable thresholds, dual-viewer review UI. |
 | **Tags & search** | Full tagging system with fast search and filtering. |
 | **Favorites** | Mark and quickly access your favorite posts. |
 | **Roles & multi-user** | Support for multiple users with different roles (owner / admin / user). |
@@ -32,6 +33,16 @@ All media is encrypted **per user** with AES. You fully control your data — no
 | **Modern web UI** | Clean, responsive gallery, viewer, upload and settings pages. |
 | **SQLite backend** | Zero external database dependency (uses `sql.js`). |
 | **Lightweight** | Pure Node.js + Express. Easy to run on a VPS, home server or even a Raspberry Pi. |
+
+### Duplicate finder
+
+Settings → **Duplicates**:
+
+- **CLIP** cosine similarity for near-duplicates (crops, re-encodes, similar frames).
+- **dHash frame hits** for video / GIF confirmation (and gif↔video / image↔video pairs).
+- Separate tabs for general, images, video/GIF and cross-type parameters.
+- Review UI: side-by-side cards with **Delete** under each item and **Skip** for the pair.
+- First scan downloads the local CLIP model (~150 MB). Requires **ffmpeg**.
 
 ### Supported Booru Import Sources
 
@@ -53,8 +64,9 @@ All media is encrypted **per user** with AES. You fully control your data — no
 ### Requirements
 
 - **Node.js ≥ 18** (recommended ≥ 20)
+- **ffmpeg** (for video/GIF hashing and CLIP frame sampling)
 - `git` and `curl` (for automatic install)
-- ~50–100 MB disk space for the application itself (media storage is separate)
+- ~50–100 MB disk for the app; first duplicate scan also needs ~150 MB for the CLIP model (media storage is separate)
 
 ### Screenshots
 
@@ -68,6 +80,10 @@ All media is encrypted **per user** with AES. You fully control your data — no
 | Settings | Import | Login |
 |:---:|:---:|:---:|
 | ![](screenshots/settings.png) | ![](screenshots/import.png) | ![](screenshots/login.png) |
+
+| Duplicates settings | Duplicate review |
+|:---:|:---:|
+| ![](screenshots/duplicates.png) | ![](screenshots/duplicates-review.png) |
 
 </details>
 
@@ -106,12 +122,16 @@ npm install
 npm start
 ```
 
+Install **ffmpeg** on the host if you plan to use duplicate detection for video/GIF.
+
 #### 3. Docker
 
 ```bash
 # Make sure spark-md5.min.js exists in public/lib/ first
 docker build -t open-booru -f - . <<'DF'
 FROM node:20-bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+  && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm install --omit=dev
@@ -137,10 +157,10 @@ http://localhost:3001
 ```
 
 1. Open the address in your browser.
-2. Create the first account (it becomes admin).
+2. Create the first account (it becomes admin / owner).
 3. Upload media or import from supported boorus.
 4. Organize with tags and favorites.
-
+5. Optional: **Settings → Duplicates** → Scan, then Review matching pairs.
 
 ### License
 
@@ -160,15 +180,26 @@ http://localhost:3001
 | Возможность | Описание |
 |-------------|----------|
 | **Шифрование AES на пользователя** | Медиа каждого пользователя шифруется своим ключом. Даже администратор сервера не может прочитать чужие файлы без пароля. |
+| **Поиск дубликатов** | CLIP-эмбеддинги + совпадение dHash-кадров для картинок, видео и GIF (в том числе gif↔mp4). Настраиваемые пороги и разбор пар бок о бок. |
 | **Теги и поиск** | Полноценная система тегов с быстрым поиском и фильтрацией. |
 | **Избранное** | Отмечайте и быстро находите любимые посты. |
-| **Роли и мультипользователь** | Поддержка нескольких пользователей с разными ролями ( owner / admin / user). |
+| **Роли и мультипользователь** | Поддержка нескольких пользователей с разными ролями (owner / admin / user). |
 | **Импорт с борд** | Импорт одним кликом с популярных имиджборд (список ниже). |
 | **Многоязычный интерфейс** | UI на 8 языках. |
 | **Изображения + Видео + GIF** | Поддержка обычных изображений, анимированных GIF и видео. |
 | **Современный веб-интерфейс** | Чистая и адаптивная галерея, просмотрщик, загрузка и настройки. |
 | **SQLite** | Без внешних баз данных (используется `sql.js`). |
 | **Лёгкий вес** | Чистый Node.js + Express. Легко запускается на VPS, домашнем сервере или даже Raspberry Pi. |
+
+### Поиск дубликатов
+
+Настройки → **Дубликаты**:
+
+- **CLIP** (cosine) — похожие кадры, кропы, перекодировки.
+- **dHash-кадры** — подтверждение для video / GIF и пар gif↔video, image↔video.
+- Отдельные вкладки параметров: общие, картинки, video/GIF, разные типы.
+- Разбор: две карточки, под каждой **Удалить**, снизу **Пропустить**.
+- Первый скан скачивает локальную CLIP-модель (~150 МБ). Нужен **ffmpeg**.
 
 ### Поддерживаемые борды для импорта
 
@@ -190,8 +221,9 @@ http://localhost:3001
 ### Требования
 
 - **Node.js ≥ 18** (рекомендуется ≥ 20)
+- **ffmpeg** (хеширование video/GIF и кадры для CLIP)
 - `git` и `curl` (для автоматической установки)
-- ~50–100 МБ места под само приложение (медиа хранится отдельно)
+- ~50–100 МБ под приложение; первый скан дубликатов — ещё ~150 МБ под CLIP-модель (медиа хранится отдельно)
 
 ### Скриншоты
 
@@ -205,6 +237,10 @@ http://localhost:3001
 | Настройки | Импорт | Вход |
 |:---:|:---:|:---:|
 | ![](screenshots/settings.png) | ![](screenshots/import.png) | ![](screenshots/login.png) |
+
+| Настройки дубликатов | Разбор дубликатов |
+|:---:|:---:|
+| ![](screenshots/duplicates.png) | ![](screenshots/duplicates-review.png) |
 
 </details>
 
@@ -243,12 +279,16 @@ npm install
 npm start
 ```
 
+Для поиска дубликатов video/GIF установите на хост **ffmpeg**.
+
 #### 3. Docker
 
 ```bash
 # Сначала убедитесь, что spark-md5.min.js лежит в public/lib/
 docker build -t open-booru -f - . <<'DF'
 FROM node:20-bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+  && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm install --omit=dev
@@ -273,10 +313,10 @@ docker run -d --name open-booru -p 3001:3001 \
 http://localhost:3001
 ```
 
-1. Создайте первый аккаунт (он станет администратором).
+1. Создайте первый аккаунт (он станет владельцем / администратором).
 2. Загружайте медиа или импортируйте с поддерживаемых борд.
 3. Организуйте контент с помощью тегов и избранного.
-
+4. По желанию: **Настройки → Дубликаты** → Скан, затем Разбор найденных пар.
 
 ### Лицензия
 
