@@ -23,7 +23,7 @@ All media is encrypted **per user** with AES. You fully control your data — no
 | Feature | Description |
 |---------|-------------|
 | **Per-user AES encryption** | Each user’s media is encrypted with their own key. Even the server admin cannot read other users’ files without the password. |
-| **Duplicate detection** | CLIP embeddings + dHash frame matching for images, video and GIF (including gif↔mp4). Tunable thresholds, dual-viewer review UI. |
+| **Duplicate detection** | CLIP embeddings + dHash frame matching for images, video and GIF (including gif↔video). Tunable thresholds, dual-viewer review UI. |
 | **Tags & search** | Full tagging system with fast search and filtering. |
 | **Favorites** | Mark and quickly access your favorite posts. |
 | **Roles & multi-user** | Support for multiple users with different roles (owner / admin / user). |
@@ -31,8 +31,6 @@ All media is encrypted **per user** with AES. You fully control your data — no
 | **Multilingual UI** | Interface available in 8 languages. |
 | **Images + Video + GIF** | Native support for common image formats, animated GIFs and videos. |
 | **Modern web UI** | Clean, responsive gallery, viewer, upload and settings pages. |
-| **SQLite backend** | Zero external database dependency (uses `sql.js`). |
-| **Lightweight** | Pure Node.js + Express. Easy to run on a VPS, home server or even a Raspberry Pi. |
 
 ### Duplicate finder
 
@@ -160,7 +158,6 @@ http://localhost:3001
 2. Create the first account (it becomes admin / owner).
 3. Upload media or import from supported boorus.
 4. Organize with tags and favorites.
-5. Optional: **Settings → Duplicates** → Scan, then Review matching pairs.
 
 ### License
 
@@ -180,7 +177,7 @@ http://localhost:3001
 | Возможность | Описание |
 |-------------|----------|
 | **Шифрование AES на пользователя** | Медиа каждого пользователя шифруется своим ключом. Даже администратор сервера не может прочитать чужие файлы без пароля. |
-| **Поиск дубликатов** | CLIP-эмбеддинги + совпадение dHash-кадров для картинок, видео и GIF (в том числе gif↔mp4). Настраиваемые пороги и разбор пар бок о бок. |
+| **Поиск дубликатов** | CLIP-эмбеддинги + совпадение dHash-кадров для картинок, видео и GIF (в том числе gif↔video). Настраиваемые пороги и разбор пар бок о бок. |
 | **Теги и поиск** | Полноценная система тегов с быстрым поиском и фильтрацией. |
 | **Избранное** | Отмечайте и быстро находите любимые посты. |
 | **Роли и мультипользователь** | Поддержка нескольких пользователей с разными ролями (owner / admin / user). |
@@ -188,8 +185,6 @@ http://localhost:3001
 | **Многоязычный интерфейс** | UI на 8 языках. |
 | **Изображения + Видео + GIF** | Поддержка обычных изображений, анимированных GIF и видео. |
 | **Современный веб-интерфейс** | Чистая и адаптивная галерея, просмотрщик, загрузка и настройки. |
-| **SQLite** | Без внешних баз данных (используется `sql.js`). |
-| **Лёгкий вес** | Чистый Node.js + Express. Легко запускается на VPS, домашнем сервере или даже Raspberry Pi. |
 
 ### Поиск дубликатов
 
@@ -316,7 +311,6 @@ http://localhost:3001
 1. Создайте первый аккаунт (он станет владельцем / администратором).
 2. Загружайте медиа или импортируйте с поддерживаемых борд.
 3. Организуйте контент с помощью тегов и избранного.
-4. По желанию: **Настройки → Дубликаты** → Скан, затем Разбор найденных пар.
 
 ### Лицензия
 
