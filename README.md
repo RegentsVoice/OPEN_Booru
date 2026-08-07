@@ -79,9 +79,9 @@ Settings → **Duplicates**:
 |:---:|:---:|:---:|
 | ![](screenshots/settings.png) | ![](screenshots/import.png) | ![](screenshots/login.png) |
 
-| Duplicates settings | Duplicate review |
-|:---:|:---:|
-| ![](screenshots/duplicates.png) | ![](screenshots/duplicates-review.png) |
+| Duplicate review |
+|:---:|
+| ![](screenshots/duplicates.png) |
 
 </details>
 
@@ -233,9 +233,9 @@ http://localhost:3001
 |:---:|:---:|:---:|
 | ![](screenshots/settings.png) | ![](screenshots/import.png) | ![](screenshots/login.png) |
 
-| Настройки дубликатов | Разбор дубликатов |
-|:---:|:---:|
-| ![](screenshots/duplicates.png) | ![](screenshots/duplicates-review.png) |
+| Разбор дубликатов |
+|:---:|
+| ![](screenshots/duplicates.png) |
 
 </details>
 
