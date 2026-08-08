@@ -1,12 +1,4 @@
 #!/usr/bin/env bash
-# OPEN Booru — Linux installer (Arch / Ubuntu / Debian / Fedora)
-# English console output.
-#
-# From anywhere:
-#   curl -fsSL https://raw.githubusercontent.com/RegentsVoice/OPEN_Booru/main/scripts/install-linux.sh | bash
-#
-# Inside a cloned repo:
-#   chmod +x scripts/install-linux.sh && ./scripts/install-linux.sh
 set -euo pipefail
 
 REPO_URL="${OPEN_BOORU_REPO:-https://github.com/RegentsVoice/OPEN_Booru.git}"
@@ -49,19 +41,16 @@ install_nodejs() {
 
   echo "==> Installing Node.js + npm..."
 
-  # Arch
   if [[ "$id" == "arch" || "$id" == "manjaro" || "$id" == "endeavouros" || "$like" == *arch* ]]; then
     need_root pacman -Sy --needed --noconfirm nodejs npm git curl
     return 0
   fi
 
-  # Fedora
   if [[ "$id" == "fedora" || "$id" == "rhel" || "$id" == "centos" || "$id" == "rocky" || "$id" == "almalinux" || "$like" == *fedora* || "$like" == *rhel* ]]; then
     need_root dnf install -y nodejs npm git curl
     return 0
   fi
 
-  # Debian / Ubuntu
   if [[ "$id" == "debian" || "$id" == "ubuntu" || "$id" == "linuxmint" || "$id" == "pop" || "$like" == *debian* || "$like" == *ubuntu* ]]; then
     need_root apt-get update -y
     need_root apt-get install -y ca-certificates curl gnupg git
@@ -81,6 +70,38 @@ install_nodejs() {
 
   echo "ERROR: Unsupported distro ($id). Install Node.js >= 18 manually, then re-run from the project folder."
   exit 1
+}
+
+install_ffmpeg() {
+  if have ffmpeg; then
+    echo "==> ffmpeg already installed ($(ffmpeg -version 2>/dev/null | head -1))"
+    return 0
+  fi
+
+  local id like
+  IFS='|' read -r id like <<<"$(detect_distro)"
+  id="$(echo "$id" | tr '[:upper:]' '[:lower:]')"
+  like="$(echo "$like" | tr '[:upper:]' '[:lower:]')"
+
+  echo "==> Installing ffmpeg..."
+
+  if [[ "$id" == "arch" || "$id" == "manjaro" || "$id" == "endeavouros" || "$like" == *arch* ]]; then
+    need_root pacman -Sy --needed --noconfirm ffmpeg
+  elif [[ "$id" == "fedora" || "$id" == "rhel" || "$id" == "centos" || "$id" == "rocky" || "$id" == "almalinux" || "$like" == *fedora* || "$like" == *rhel* ]]; then
+    need_root dnf install -y ffmpeg || need_root dnf install -y ffmpeg-free || true
+  elif [[ "$id" == "debian" || "$id" == "ubuntu" || "$id" == "linuxmint" || "$id" == "pop" || "$like" == *debian* || "$like" == *ubuntu* ]]; then
+    need_root apt-get update -y
+    need_root apt-get install -y ffmpeg
+  else
+    echo "WARN: cannot auto-install ffmpeg on this distro. Install it manually for video/GIF duplicate detection."
+    return 0
+  fi
+
+  if have ffmpeg; then
+    echo "==> ffmpeg OK ($(ffmpeg -version 2>/dev/null | head -1))"
+  else
+    echo "WARN: ffmpeg install finished but binary not found on PATH. Install manually if needed."
+  fi
 }
 
 SCRIPT_PATH="${BASH_SOURCE[0]:-$0}"
@@ -109,6 +130,7 @@ fi
 cd "$ROOT"
 
 install_nodejs
+install_ffmpeg
 
 NODE_MAJOR="$(node -v | sed 's/^v//' | cut -d. -f1)"
 if [[ "${NODE_MAJOR:-0}" -lt 18 ]]; then

@@ -1,8 +1,3 @@
-# OPEN Booru — Windows installer (English)
-# Usage (from anywhere, PowerShell):
-#   irm https://raw.githubusercontent.com/RegentsVoice/OPEN_Booru/main/scripts/install-windows.ps1 | iex
-# Or inside a cloned repo:
-#   .\scripts\install-windows.ps1
 $ErrorActionPreference = 'Stop'
 
 $RepoUrl  = if ($env:OPEN_BOORU_REPO) { $env:OPEN_BOORU_REPO } else { 'https://github.com/RegentsVoice/OPEN_Booru.git' }
@@ -14,6 +9,46 @@ Write-Host '==> OPEN Booru installer (Windows)'
 function Test-Node {
     try { Get-Command node -EA Stop | Out-Null; Get-Command npm -EA Stop | Out-Null; return $true }
     catch { return $false }
+}
+
+function Test-Ffmpeg {
+    try { Get-Command ffmpeg -EA Stop | Out-Null; return $true }
+    catch { return $false }
+}
+
+function Install-Ffmpeg {
+    if (Test-Ffmpeg) {
+        $ver = (ffmpeg -version 2>$null | Select-Object -First 1)
+        Write-Host "==> ffmpeg already installed ($ver)"
+        return
+    }
+    Write-Host '==> Installing ffmpeg via winget...'
+    if (-not (Get-Command winget -EA SilentlyContinue)) {
+        Write-Host 'WARN: winget not available. Install ffmpeg manually for video/GIF duplicate detection:'
+        Write-Host '      https://ffmpeg.org/download.html'
+        return
+    }
+    $ok = $false
+    foreach ($pkg in @('Gyan.FFmpeg', 'ffmpeg')) {
+        try {
+            winget install $pkg --accept-package-agreements --accept-source-agreements
+            $ok = $true
+            break
+        } catch {
+            Write-Host "WARN: winget install $pkg failed, trying next..."
+        }
+    }
+    $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' +
+                [Environment]::GetEnvironmentVariable('Path','User')
+    if (Test-Ffmpeg) {
+        $ver = (ffmpeg -version 2>$null | Select-Object -First 1)
+        Write-Host "==> ffmpeg OK ($ver)"
+    } elseif ($ok) {
+        Write-Host 'WARN: ffmpeg installed but not on PATH. Open a NEW PowerShell window or install from https://ffmpeg.org/download.html'
+    } else {
+        Write-Host 'WARN: could not install ffmpeg automatically. Install manually if needed:'
+        Write-Host '      https://ffmpeg.org/download.html'
+    }
 }
 
 $Root = $null
@@ -62,6 +97,8 @@ if ($major -lt 18) {
     Write-Host "ERROR: Node.js >= 18 required (found $(node -v))"
     exit 1
 }
+
+Install-Ffmpeg
 
 $SparkDir = Join-Path $Root 'public\lib'
 $SparkFile = Join-Path $SparkDir 'spark-md5.min.js'
