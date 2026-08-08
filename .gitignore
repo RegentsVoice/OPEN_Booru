@@ -1,5 +1,7 @@
+/public/lib/spark-md5.min.js
+/node_modules/
 /database/
 /media/
 /logs/
 /tmp/
-package-lock.json
+/package-lock.json

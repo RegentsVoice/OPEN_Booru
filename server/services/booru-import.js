@@ -144,34 +144,68 @@ function refererForUrl(fileUrl, fallbackOrigin) {
     return fallbackOrigin || 'https://gelbooru.com/';
 }
 
+function absolutizeMediaUrl(u) {
+    if (!u) return null;
+    let s = String(u).trim();
+    if (s.startsWith('//')) s = 'https:' + s;
+    if (!/^https?:\/\//i.test(s)) return null;
+    if (/logo|avatar|banner|thumbnail_|\/thumbnails\//i.test(s)) return null;
+    return preferMp4OverWebm(normalizeCdnUrl(s));
+}
+
+function scoreMediaUrl(u) {
+    if (!u) return -100;
+    let s = 0;
+    if (/\.(mp4|webm)(\?|$)/i.test(u)) s += 50;
+    if (/\.gif(\?|$)/i.test(u)) s += 40;
+    if (/\.(png|jpe?g)(\?|$)/i.test(u)) s += 30;
+    if (/\/images\/[a-f0-9]{2}\/[a-f0-9]{2}\/[a-f0-9]{32}\./i.test(u)) s += 25;
+    if (/\/images\/[a-f0-9]{2}\/[a-f0-9]{2}\/[a-f0-9]{40}\./i.test(u)) s -= 40;
+    if (/sample/i.test(u)) s -= 5;
+    return s;
+}
+
 async function scrapeGelbooruHtmlForMedia(pageUrl) {
     const { res, text } = await fetchText(pageUrl, {
         'User-Agent': UA,
-        'Accept': 'text/html'
+        'Accept': 'text/html,application/xhtml+xml'
     });
     if (!res.ok) return null;
-    const mp4 = text.match(/<source[^>]+src=["']([^"']+\.mp4[^"']*)["']/i);
-    const webm = text.match(/<source[^>]+src=["']([^"']+\.webm[^"']*)["']/i);
-    const original = text.match(/href=["'](https?:\/\/img\d*\.(?:gelbooru|realbooru)\.com[^"']+\.(?:mp4|webm|gif|png|jpe?g|zip))["'][^>]*>\s*Original/i)
-        || text.match(/https?:\/\/img\d*\.(?:gelbooru|realbooru)\.com\/images\/[^"'<\s]+\.(?:mp4|webm)/i)
-        || text.match(/href=["'](https?:\/\/realbooru\.com\/images\/[^"']+\.(?:mp4|webm|gif|png|jpe?g))["']/i)
-        || text.match(/https?:\/\/[^"'\s]*realbooru\.com\/images\/[^"'<\s]+\.(?:mp4|webm|gif|png|jpe?g)/i);
-    let fileUrl = null;
-    if (mp4) fileUrl = mp4[1];
-    else if (webm) fileUrl = webm[1];
-    else if (original) fileUrl = Array.isArray(original) ? (original[1] || original[0]) : original;
-    if (!fileUrl) {
+
+    const found = [];
+    const push = (raw) => {
+        const u = absolutizeMediaUrl(raw);
+        if (u && !found.includes(u)) found.push(u);
+    };
+
+    const imgId = text.match(/id=["']image["'][^>]+src=["']([^"']+)["']/i)
+        || text.match(/src=["']([^"']+)["'][^>]+id=["']image["']/i);
+    if (imgId) push(imgId[1]);
+
+    for (const m of text.matchAll(/<source[^>]+src=["']([^"']+)["']/gi)) push(m[1]);
+    for (const m of text.matchAll(/src=["']((?:https?:)?\/\/[^"']+\.(?:mp4|webm|gif|png|jpe?g)[^"']*)["']/gi)) {
+        push(m[1]);
+    }
+    for (const m of text.matchAll(/href=["']((?:https?:)?\/\/[^"']+\.(?:mp4|webm|gif|png|jpe?g|zip)[^"']*)["']/gi)) {
+        push(m[1]);
+    }
+    for (const m of text.matchAll(/((?:https?:)?\/\/(?:img\d*\.)?(?:gelbooru|realbooru)\.com\/+images\/[^"'<\s>]+\.(?:mp4|webm|gif|png|jpe?g))/gi)) {
+        push(m[1]);
+    }
+
+    if (!found.length) {
         const og = text.match(/property=["']og:image["'][^>]+content=["']([^"']+)["']/i)
             || text.match(/content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
-        if (og) fileUrl = og[1];
+        if (og) push(og[1]);
     }
-    if (!fileUrl) return null;
-    if (fileUrl.startsWith('//')) fileUrl = 'https:' + fileUrl;
-    fileUrl = preferMp4OverWebm(normalizeCdnUrl(fileUrl));
+
+    if (!found.length) return null;
+
+    found.sort((a, b) => scoreMediaUrl(b) - scoreMediaUrl(a));
     let tags = [];
     const ta = text.match(/<textarea[^>]*id=["']tags["'][^>]*>([^<]*)<\/textarea>/i);
     if (ta) tags = ta[1].trim().split(/\s+/).filter(Boolean);
-    return { fileUrl, tags };
+    return { fileUrl: found[0], fileUrls: found, tags };
 }
 
 export async function resolveBooruUrl(inputUrl, credentialsBySite = null) {
@@ -279,6 +313,36 @@ export async function resolveBooruUrl(inputUrl, credentialsBySite = null) {
             throw e;
         }
 
+        const pageHref = `${url.protocol}//${url.host}/index.php?page=post&s=view&id=${encodeURIComponent(id)}`;
+
+        async function fromHtmlScrape(reason) {
+            const scraped = await scrapeGelbooruHtmlForMedia(pageHref);
+            if (!scraped || !scraped.fileUrl) {
+                const e = new Error(
+                    reason
+                        ? `${mappedSite}: ${reason}`
+                        : `Post not found on ${mappedSite} (API offline or page blocked)`
+                );
+                if (needsAuth) {
+                    e.code = 'credentials_required';
+                    e.site = mappedSite;
+                }
+                throw e;
+            }
+            const ext = path.extname(new URL(scraped.fileUrl).pathname) || '.bin';
+            return {
+                fileUrl: scraped.fileUrl,
+                fileUrls: scraped.fileUrls || [scraped.fileUrl],
+                tags: scraped.tags || [],
+                originalName: `${host.replace(/\./g, '_')}_${id}${ext}`,
+                source: mappedSite,
+                siteId: mappedSite,
+                pageUrl: pageHref,
+                width: 0,
+                height: 0
+            };
+        }
+
         const api = `${url.protocol}//${url.host}/index.php?page=dapi&s=post&q=index&json=1&id=${encodeURIComponent(id)}${authQ}`;
         try {
             const data = await fetchJson(api);
@@ -287,29 +351,7 @@ export async function resolveBooruUrl(inputUrl, credentialsBySite = null) {
 
             const post = list[0] || (data && data.file_url ? data : null);
             if (!post) {
-
-                try {
-                    const scraped = await scrapeGelbooruHtmlForMedia(href);
-                    if (scraped && scraped.fileUrl) {
-                        const ext = path.extname(new URL(scraped.fileUrl).pathname) || '.bin';
-                        return {
-                            fileUrl: scraped.fileUrl,
-                            tags: scraped.tags || [],
-                            originalName: `${host.replace(/\./g, '_')}_${id}${ext}`,
-                            source: mappedSite,
-                            siteId: mappedSite,
-                            pageUrl: href,
-                            width: 0,
-                            height: 0
-                        };
-                    }
-                } catch (e2) {}
-                const e = new Error('Post not found (check id or API credentials)');
-                if (needsAuth) {
-                    e.code = 'credentials_required';
-                    e.site = mappedSite;
-                }
-                throw e;
+                return await fromHtmlScrape('post not in API response');
             }
             let fileUrl = post.file_url || post.sample_url || post.preview_url;
             if (!fileUrl) throw new Error('No file URL in post');
@@ -317,9 +359,9 @@ export async function resolveBooruUrl(inputUrl, credentialsBySite = null) {
             fileUrl = preferMp4OverWebm(normalizeCdnUrl(fileUrl));
 
             const tags = tagsFromGelbooruPost(post);
-            if (/\.(webm|mp4)(\?|$)/i.test(fileUrl) || (tags.includes('video') || tags.includes('animated'))) {
+            if (/\.(webm|mp4)(\?|$)/i.test(fileUrl) || tags.includes('video') || tags.includes('animated')) {
                 try {
-                    const scraped = await scrapeGelbooruHtmlForMedia(href);
+                    const scraped = await scrapeGelbooruHtmlForMedia(pageHref);
                     if (scraped && scraped.fileUrl) {
                         fileUrl = scraped.fileUrl;
                         if (!tags.length && scraped.tags.length) tags.push(...scraped.tags);
@@ -335,24 +377,46 @@ export async function resolveBooruUrl(inputUrl, credentialsBySite = null) {
                 originalName: `${host.replace(/\./g, '_')}_${id}${ext}`,
                 source: mappedSite,
                 siteId: mappedSite,
-                pageUrl: href,
+                pageUrl: pageHref,
                 width: parseInt(post.width, 10) || 0,
                 height: parseInt(post.height, 10) || 0
             };
         } catch (err) {
-            if (err.code === 'credentials_required') throw err;
             if (err.status === 401 || err.status === 403) {
+                if (!needsAuth) {
+                    try {
+                        return await fromHtmlScrape(`API HTTP ${err.status}, using page scrape`);
+                    } catch (_) {}
+                }
                 const e = new Error(`${mappedSite} API rejected credentials (HTTP ${err.status})`);
                 e.code = 'credentials_required';
                 e.site = mappedSite;
                 throw e;
             }
 
-            if (err.code === 'credentials_required' || (err.message && err.message.includes('XML'))) {
-                const e = new Error(err.message);
-                e.code = 'credentials_required';
-                e.site = mappedSite;
-                throw e;
+            const isXmlOrOffline = err.code === 'credentials_required'
+                || (err.message && (
+                    err.message.includes('XML')
+                    || err.message.includes('API offline')
+                    || err.message.includes('Invalid JSON')
+                ));
+
+            if (isXmlOrOffline) {
+                try {
+                    return await fromHtmlScrape(
+                        mappedSite === 'realbooru'
+                            ? 'API offline, using page scrape'
+                            : 'API returned non-JSON, using page scrape'
+                    );
+                } catch (scrapeErr) {
+                    if (needsAuth) {
+                        const e = new Error(err.message);
+                        e.code = 'credentials_required';
+                        e.site = mappedSite;
+                        throw e;
+                    }
+                    throw scrapeErr;
+                }
             }
             throw err;
         }
@@ -473,56 +537,95 @@ export async function resolveBooruUrl(inputUrl, credentialsBySite = null) {
     throw new Error('Unsupported URL. Supported: Danbooru, Gelbooru, Rule34, Safebooru, e621, Yande.re, Konachan, or direct media link');
 }
 
-export async function downloadImportToTemp(resolved, userId) {
-    const referer = refererForUrl(resolved.fileUrl, resolved.pageUrl || undefined);
-    let downloadUrl = preferMp4OverWebm(normalizeCdnUrl(resolved.fileUrl));
-    let res = await fetch(downloadUrl, {
-        headers: {
-            'User-Agent': UA,
-            'Accept': '*/*',
-            'Referer': referer,
-            'Origin': referer.replace(/\/$/, '')
-        },
-        redirect: 'manual'
-    });
+function candidateDownloadUrls(fileUrl, extraUrls = []) {
+    const urls = [];
+    const add = (u) => {
+        if (!u) return;
+        const n = normalizeCdnUrl(String(u).startsWith('//') ? 'https:' + u : u);
+        if (n && !urls.includes(n)) urls.push(n);
+    };
+    const seeds = [fileUrl, ...(extraUrls || [])].filter(Boolean);
+    for (const seed of seeds) {
+        const primary = normalizeCdnUrl(String(seed).startsWith('//') ? 'https:' + seed : seed);
+        add(primary);
+        add(preferMp4OverWebm(primary));
+        if (/\.mp4(\?|$)/i.test(primary)) {
+            add(primary.replace(/\.mp4(\?|$)/i, '.webm$1'));
+        } else if (/\.webm(\?|$)/i.test(primary)) {
+            add(primary.replace(/\.webm(\?|$)/i, '.mp4$1'));
+        }
+        if (/\.jpe?g(\?|$)/i.test(primary)) {
+            add(primary.replace(/\.jpe?g(\?|$)/i, '.png$1'));
+            add(primary.replace(/\.jpe?g(\?|$)/i, '.jpg$1'));
+        }
+    }
+    urls.sort((a, b) => scoreMediaUrl(b) - scoreMediaUrl(a));
+    return urls;
+}
+
+async function fetchMediaWithReferer(downloadUrl, referer) {
+    const origin = (() => {
+        try { return new URL(referer).origin; } catch { return referer.replace(/\/$/, ''); }
+    })();
+    const headers = {
+        'User-Agent': UA,
+        'Accept': '*/*',
+        'Referer': referer,
+        'Origin': origin
+    };
+
+    let res = await fetch(downloadUrl, { headers, redirect: 'manual' });
 
     if (res.status >= 300 && res.status < 400) {
         const loc = res.headers.get('location');
         if (loc) {
             const next = loc.startsWith('http') ? loc : new URL(loc, downloadUrl).href;
-
             if (/hotlink\.php/i.test(next)) {
-                res = await fetch(downloadUrl, {
-                    headers: {
-                        'User-Agent': UA,
-                        'Accept': '*/*',
-                        'Referer': referer
-                    },
-                    redirect: 'follow'
-                });
+                res = await fetch(downloadUrl, { headers, redirect: 'follow' });
             } else {
-                res = await fetch(next, {
-                    headers: {
-                        'User-Agent': UA,
-                        'Accept': '*/*',
-                        'Referer': referer
-                    },
-                    redirect: 'follow'
-                });
+                res = await fetch(next, { headers, redirect: 'follow' });
             }
         }
     } else if (!res.ok) {
-
-        res = await fetch(downloadUrl, {
-            headers: {
-                'User-Agent': UA,
-                'Accept': '*/*',
-                'Referer': referer
-            },
-            redirect: 'follow'
-        });
+        res = await fetch(downloadUrl, { headers, redirect: 'follow' });
     }
-    if (!res.ok) throw new Error(`Download failed: HTTP ${res.status}`);
+
+    if (res.ok) {
+        const ct = (res.headers.get('content-type') || '').toLowerCase();
+        if (ct.includes('text/html')) {
+            return { ok: false, status: 404, res: null };
+        }
+    }
+    return { ok: res.ok, status: res.status, res };
+}
+
+export async function downloadImportToTemp(resolved, userId) {
+    let referer = refererForUrl(resolved.fileUrl, resolved.pageUrl || undefined);
+    if (resolved.pageUrl) {
+        try {
+            referer = new URL(resolved.pageUrl).origin + '/';
+        } catch (_) {}
+    }
+
+    const candidates = candidateDownloadUrls(resolved.fileUrl, resolved.fileUrls || []);
+    let res = null;
+    let lastStatus = 0;
+    let usedUrl = candidates[0];
+
+    for (const url of candidates) {
+        const attempt = await fetchMediaWithReferer(url, referer);
+        lastStatus = attempt.status;
+        if (attempt.ok && attempt.res) {
+            res = attempt.res;
+            usedUrl = url;
+            break;
+        }
+    }
+
+    if (!res || !res.ok) {
+        throw new Error(`Download failed: HTTP ${lastStatus || 404}`);
+    }
+    resolved.fileUrl = usedUrl;
 
     const contentType = res.headers.get('content-type') || '';
     const contentLengthHeader = res.headers.get('content-length');
