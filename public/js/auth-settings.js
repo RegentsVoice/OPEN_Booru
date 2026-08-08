@@ -1026,8 +1026,12 @@ export function handleSuggestionKeyboard(e, inputElement) {
 
 export function updateSelectedSuggestion(items) {
     items.forEach((item, idx) => {
-        if (idx === selectedSuggestionIndex) item.classList.add('selected');
-        else item.classList.remove('selected');
+        if (idx === selectedSuggestionIndex) {
+            item.classList.add('selected');
+            item.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        } else {
+            item.classList.remove('selected');
+        }
     });
 }
 
