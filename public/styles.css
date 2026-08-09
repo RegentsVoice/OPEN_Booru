@@ -193,6 +193,28 @@ select {
     background: rgba(124, 92, 255, 0.25);
 }
 
+.active-tag-exclude {
+    background: rgba(220, 60, 60, 0.18);
+    border-color: rgba(220, 60, 60, 0.45);
+    color: #ffb4b4;
+}
+
+.active-tag-exclude:hover {
+    background: rgba(220, 60, 60, 0.28);
+}
+
+.active-tag-meta {
+    background: rgba(56, 189, 248, 0.14);
+    border-color: rgba(56, 189, 248, 0.4);
+    color: #7dd3fc;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px;
+}
+
+.active-tag-meta:hover {
+    background: rgba(56, 189, 248, 0.22);
+}
+
 .active-tag .tag-remove {
     display: inline-flex;
     align-items: center;
@@ -1028,6 +1050,23 @@ select {
 .suggestion-item:hover,
 .suggestion-item.selected {
     background: rgba(124, 92, 255, 0.2);
+}
+
+.suggestion-item.suggestion-meta {
+    background: rgba(56, 189, 248, 0.08);
+    border-bottom: 1px solid rgba(56, 189, 248, 0.15);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+}
+
+.suggestion-item.suggestion-meta:hover,
+.suggestion-item.suggestion-meta.selected {
+    background: rgba(56, 189, 248, 0.2);
+}
+
+.suggestion-item.suggestion-meta .suggestion-count {
+    background: rgba(56, 189, 248, 0.2);
+    color: #7dd3fc;
 }
 
 .suggestion-count {

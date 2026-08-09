@@ -2,7 +2,8 @@ import { showToast } from './toast.js';
 import { getLanguage, setLanguage, t } from './user-locales.js';
 import { state } from './state.js';
 import {
-    applyLanguage, updateAllTexts, showAlert, showConfirm, escapeHtml, formatDate, parseTagsToArray
+    applyLanguage, updateAllTexts, showAlert, showConfirm, escapeHtml, formatDate, parseTagsToArray,
+    META_FILTER_OPS, mergeFilterToken
 } from './utils.js';
 
 function getMediaUi() {
@@ -923,22 +924,40 @@ export function bindBooruSettingsEvents() {
 suggestions.className = 'suggestions-container';
 document.body.appendChild(suggestions);
 
-export function renderSuggestions(inputElement, tags) {
+export function renderSuggestions(inputElement, tags, opts = {}) {
     suggestions.innerHTML = '';
     selectedSuggestionIndex = -1;
-    if (!tags.length) { suggestions.classList.remove('show'); return; }
+    const list = Array.isArray(tags) ? tags.slice() : [];
+    const isSearch = inputElement && inputElement.id === 'tagInput';
+    const prefix = String(opts.query || '').trim().toLowerCase();
+    const excludePrefix = prefix.startsWith('-');
+    const matchQ = excludePrefix ? prefix.slice(1) : prefix;
+
+    if (isSearch) {
+        const metas = META_FILTER_OPS
+            .filter(op => !matchQ || op.startsWith(matchQ) || op.includes(matchQ))
+            .map(op => ({ name: op, count: 'meta', meta: true }));
+        list.unshift(...metas);
+    } else if (excludePrefix && matchQ) {
+        for (const tag of list) {
+            if (!tag.name.startsWith('-')) tag.name = `-${tag.name}`;
+        }
+    }
+
+    if (!list.length) { suggestions.classList.remove('show'); return; }
     const rect = inputElement.getBoundingClientRect();
     suggestions.style.left = `${rect.left}px`;
     suggestions.style.top = `${rect.bottom + 5}px`;
-    suggestions.style.width = `${rect.width}px`;
+    suggestions.style.width = `${Math.max(rect.width, 220)}px`;
     suggestions.classList.add('show');
-    tags.forEach((tag, index) => {
+    list.forEach((tag, index) => {
         const item = document.createElement('button');
-        item.className = 'suggestion-item';
+        item.className = tag.meta ? 'suggestion-item suggestion-meta' : 'suggestion-item';
         item.dataset.index = index;
+        const countLabel = tag.meta ? 'meta' : String(tag.count ?? '');
         item.innerHTML = `
             <span>${escapeHtml(tag.name)}</span>
-            <span class="suggestion-count">${tag.count}</span>
+            <span class="suggestion-count">${escapeHtml(countLabel)}</span>
         `;
         item.addEventListener('mousedown', (e) => {
             e.preventDefault();
@@ -974,9 +993,7 @@ export async function applySuggestion(inputElement, tagName) {
         selectedSuggestionIndex = -1;
         return;
     }
-    const currentTags = parseTagsToArray(state.tags);
-    if (!currentTags.includes(tagName)) currentTags.push(tagName);
-    state.tags = currentTags.join(' ');
+    state.tags = mergeFilterToken(parseTagsToArray(state.tags), tagName).join(' ');
     inputElement.value = '';
     suggestions.classList.remove('show');
     selectedSuggestionIndex = -1;
@@ -1046,7 +1063,8 @@ export const debounce = (fn, delay = 250) => {
 let suggestionsController = null;
 
 export const handleSuggestionsDebounced = debounce(async (query) => {
-    if (!query.trim()) { suggestions.classList.remove('show'); return; }
+    const q = String(query || '').trim();
+    if (!q) { suggestions.classList.remove('show'); return; }
     if (suggestionsController) {
         suggestionsController.abort();
         suggestionsController = null;
@@ -1054,10 +1072,18 @@ export const handleSuggestionsDebounced = debounce(async (query) => {
     const controller = new AbortController();
     suggestionsController = controller;
     try {
-        const response = await fetch(`/api/tags/autocomplete?query=${encodeURIComponent(query)}`, { signal: controller.signal });
-        const data = await response.json();
+        const apiQ = q.startsWith('-') ? q.slice(1) : q;
+        let tags = [];
+        if (apiQ) {
+            const response = await fetch(`/api/tags/autocomplete?query=${encodeURIComponent(apiQ)}`, { signal: controller.signal });
+            const data = await response.json();
+            tags = data.tags || [];
+            if (q.startsWith('-')) {
+                tags = tags.map(t => ({ ...t, name: t.name.startsWith('-') ? t.name : `-${t.name}` }));
+            }
+        }
         if (!controller.signal.aborted) {
-            renderSuggestions(tagInput, data.tags || []);
+            renderSuggestions(tagInput, tags, { query: q });
         }
     } catch (err) {
         if (err.name !== 'AbortError') console.error('Autocomplete error:', err);

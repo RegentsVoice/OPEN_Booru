@@ -14,30 +14,83 @@ app.get('/api/media', (req, res) => {
         const page = parseInt(req.query.page) || 0;
         const limit = parseInt(req.query.limit) || 27;
         const tagsFilter = req.query.tags || '';
-        const favoriteOnly = req.query.favorite === 'true';
-        const type = req.query.type || 'all';
+        let favoriteOnly = req.query.favorite === 'true';
+        let typeParam = req.query.type || 'all';
+
+        const tokens = String(tagsFilter).trim().split(/\s+/).filter(Boolean);
+        const includeTags = [];
+        const excludeTags = [];
+        const typeSet = new Set();
+        let sortMode = 'newest';
+
+        const mapType = (v) => {
+            const x = String(v || '').toLowerCase();
+            if (x === 'image' || x === 'img') return 'image';
+            if (x === 'video') return 'video';
+            if (x === 'gif' || x === 'animation' || x === 'animations') return 'gif';
+            return null;
+        };
+        const mapSort = (v) => {
+            const x = String(v || '').toLowerCase();
+            if (x === 'newest' || x === 'new') return 'newest';
+            if (x === 'oldest' || x === 'old') return 'oldest';
+            if (x === 'random') return 'random';
+            if (x === 'duration_max') return 'duration_max';
+            if (x === 'duration_min') return 'duration_min';
+            return null;
+        };
+
+        for (const raw of tokens) {
+            const t = raw.trim();
+            if (!t) continue;
+            const lower = t.toLowerCase();
+            if (lower.startsWith('type:')) {
+                const mapped = mapType(lower.slice(5));
+                if (mapped) typeSet.add(mapped);
+                continue;
+            }
+            if (lower.startsWith('fav:')) {
+                const v = lower.slice(4);
+                if (v === 'true' || v === 'only' || v === '1' || v === 'yes') favoriteOnly = true;
+                continue;
+            }
+            if (lower.startsWith('sort:')) {
+                const mapped = mapSort(lower.slice(5));
+                if (mapped) sortMode = mapped;
+                continue;
+            }
+            if (t.startsWith('-') && t.length > 1) {
+                excludeTags.push(t.slice(1));
+                continue;
+            }
+            includeTags.push(t);
+        }
+
+        if (typeParam && typeParam !== 'all') {
+            const mapped = mapType(typeParam) || typeParam;
+            if (mapped === 'image' || mapped === 'video' || mapped === 'gif') typeSet.add(mapped);
+        }
 
         let whereClauses = [];
         let params = [];
         if (favoriteOnly) {
             whereClauses.push(`m.id IN (SELECT media_id FROM favorites)`);
         }
-        if (type !== 'all') {
+        if (typeSet.size === 1) {
             whereClauses.push(`m.media_type = ?`);
-            params.push(type);
+            params.push([...typeSet][0]);
+        } else if (typeSet.size > 1) {
+            const arr = [...typeSet];
+            whereClauses.push(`m.media_type IN (${arr.map(() => '?').join(',')})`);
+            params.push(...arr);
         }
 
-        let mediaIdsWithTags = null;
-        if (tagsFilter.trim()) {
-            const tagList = tagsFilter.trim().split(/\s+/).filter(t => t);
-            let subQuery = `SELECT media_id FROM media_tags mt JOIN tags t ON mt.tag_id = t.id WHERE t.name IN (${tagList.map(() => '?').join(',')}) GROUP BY media_id HAVING COUNT(DISTINCT t.id) = ?`;
+        if (includeTags.length) {
+            const subQuery = `SELECT media_id FROM media_tags mt JOIN tags t ON mt.tag_id = t.id WHERE t.name IN (${includeTags.map(() => '?').join(',')}) GROUP BY media_id HAVING COUNT(DISTINCT t.id) = ?`;
             const stmt = db.tags.prepare(subQuery);
-            const args = [...tagList, tagList.length];
-            stmt.bind(args);
+            stmt.bind([...includeTags, includeTags.length]);
             const ids = [];
-            while (stmt.step()) {
-                ids.push(stmt.get()[0]);
-            }
+            while (stmt.step()) ids.push(stmt.get()[0]);
             stmt.free();
             if (ids.length === 0) {
                 return res.json({
@@ -48,16 +101,29 @@ app.get('/api/media', (req, res) => {
                     currentPage: page
                 });
             }
-            mediaIdsWithTags = ids;
+            whereClauses.push(`m.id IN (${ids.map(() => '?').join(',')})`);
+            params.push(...ids);
         }
 
-        if (mediaIdsWithTags) {
-            whereClauses.push(`m.id IN (${mediaIdsWithTags.map(() => '?').join(',')})`);
-            params.push(...mediaIdsWithTags);
+        if (excludeTags.length) {
+            const subQuery = `SELECT DISTINCT media_id FROM media_tags mt JOIN tags t ON mt.tag_id = t.id WHERE t.name IN (${excludeTags.map(() => '?').join(',')})`;
+            const stmt = db.tags.prepare(subQuery);
+            stmt.bind(excludeTags);
+            const ids = [];
+            while (stmt.step()) ids.push(stmt.get()[0]);
+            stmt.free();
+            if (ids.length) {
+                whereClauses.push(`m.id NOT IN (${ids.map(() => '?').join(',')})`);
+                params.push(...ids);
+            }
         }
 
         const whereSql = whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : '';
-        const orderSql = `ORDER BY m.created_at DESC`;
+        let orderSql = `ORDER BY m.created_at DESC`;
+        if (sortMode === 'oldest') orderSql = `ORDER BY m.created_at ASC`;
+        else if (sortMode === 'random') orderSql = `ORDER BY RANDOM()`;
+        else if (sortMode === 'duration_max') orderSql = `ORDER BY m.duration DESC, m.created_at DESC`;
+        else if (sortMode === 'duration_min') orderSql = `ORDER BY m.duration ASC, m.created_at DESC`;
 
         const countSql = `SELECT COUNT(*) as total FROM media m ${whereSql}`;
         const countStmt = db.main.prepare(countSql);

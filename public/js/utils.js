@@ -68,6 +68,63 @@ export function parseTagsToArray(tagsString) {
     return tagsString.trim().split(/\s+/).filter(t => t);
 }
 
+export const META_FILTER_OPS = [
+    'type:image',
+    'type:img',
+    'type:video',
+    'type:gif',
+    'type:animation',
+    'fav:true',
+    'fav:only',
+    'sort:newest',
+    'sort:new',
+    'sort:oldest',
+    'sort:old',
+    'sort:random',
+    'sort:duration_max',
+    'sort:duration_min'
+];
+
+export function isMetaFilterToken(token) {
+    if (!token || !token.includes(':')) return false;
+    const lower = String(token).toLowerCase();
+    return META_FILTER_OPS.some(op => op === lower);
+}
+
+export function mergeFilterToken(list, token) {
+    if (!token) return list.slice();
+    const raw = String(token).trim();
+    if (!raw) return list.slice();
+    let next = list.slice();
+    const lower = raw.toLowerCase();
+    if (lower.includes(':')) {
+        const key = lower.split(':')[0];
+        next = next.filter(t => !String(t).toLowerCase().startsWith(key + ':'));
+        const canonical = META_FILTER_OPS.find(op => op === lower) || raw;
+        next.push(canonical);
+        return next;
+    }
+    const bare = raw.startsWith('-') ? raw.slice(1) : raw;
+    if (!bare) return next;
+    next = next.filter(t => t !== bare && t !== `-${bare}`);
+    next.push(raw.startsWith('-') ? `-${bare}` : bare);
+    return next;
+}
+
+export function toggleExcludeToken(list, tagName) {
+    const bare = String(tagName || '').replace(/^-/, '').trim();
+    if (!bare) return list.slice();
+    const hasPos = list.includes(bare);
+    const hasNeg = list.includes(`-${bare}`);
+    let next = list.filter(t => t !== bare && t !== `-${bare}`);
+    if (hasPos || (!hasPos && !hasNeg)) {
+        next.push(`-${bare}`);
+    } else {
+        next.push(bare);
+    }
+    return next;
+}
+
 export function showLoading() {
     document.getElementById('loadingOverlay').classList.remove('hidden');
 }

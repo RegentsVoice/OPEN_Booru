@@ -3,6 +3,7 @@ import { getLanguage, t } from './user-locales.js';
 import { state, icons } from './state.js';
 import {
     escapeHtml, formatDate, formatFileSize, formatDuration, parseTagsToArray,
+    mergeFilterToken, toggleExcludeToken, isMetaFilterToken,
     showLoading, hideLoading, showAlert, showConfirm, applyLanguage, updateAllTexts
 } from './utils.js';
 
@@ -378,26 +379,50 @@ export function updateActiveTagsDisplay() {
         return;
     }
     clearAllTagsBtn?.classList.remove('hidden');
-    tagsContainer.innerHTML = tagsArray.map(tag =>
-        `<span class="active-tag" data-tag="${escapeHtml(tag)}">${escapeHtml(tag)}<span class="tag-remove" data-tag="${escapeHtml(tag)}">${icons.close}</span></span>`
-    ).join('');
-    document.querySelectorAll('.tag-remove').forEach(btn => {
+    tagsContainer.innerHTML = tagsArray.map(tag => {
+        const isExclude = tag.startsWith('-');
+        const isMeta = isMetaFilterToken(tag);
+        const cls = ['active-tag'];
+        if (isExclude) cls.push('active-tag-exclude');
+        if (isMeta) cls.push('active-tag-meta');
+        return `<span class="${cls.join(' ')}" data-tag="${escapeHtml(tag)}">${escapeHtml(tag)}<span class="tag-remove" data-tag="${escapeHtml(tag)}">${icons.close}</span></span>`;
+    }).join('');
+    document.querySelectorAll('#tagsContainer .tag-remove').forEach(btn => {
         btn.addEventListener('click', (e) => { e.stopPropagation(); removeTag(btn.dataset.tag); });
     });
+    document.querySelectorAll('#tagsContainer .active-tag').forEach(el => {
+        el.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const tag = el.dataset.tag || '';
+            if (!tag || isMetaFilterToken(tag)) return;
+            applyExcludeToggle(tag);
+        });
+    });
+}
+
+export function applyExcludeToggle(tagName) {
+    const bare = String(tagName || '').replace(/^-/, '').trim();
+    if (!bare || isMetaFilterToken(bare)) return;
+    state.tags = toggleExcludeToken(parseTagsToArray(state.tags), bare).join(' ');
+    if (tagInput) tagInput.value = '';
+    state.page = 0;
+    updateActiveTagsDisplay();
+    loadMedia(0);
 }
 
 export function removeTag(tagToRemove) {
     const tagsArray = parseTagsToArray(state.tags);
     const newTags = tagsArray.filter(t => t !== tagToRemove);
     state.tags = newTags.join(' ');
-    tagInput.value = '';
+    if (tagInput) tagInput.value = '';
     state.page = 0;
     loadMedia(0);
 }
 
 export function clearAllTags() {
     state.tags = '';
-    tagInput.value = '';
+    if (tagInput) tagInput.value = '';
     state.page = 0;
     loadMedia(0);
 }
@@ -417,9 +442,9 @@ export function addTagFromInput() {
         tagInput.value = '';
         return;
     }
-    const currentTags = parseTagsToArray(state.tags);
-    const unique = [...new Set([...currentTags, ...tagsArray])];
-    state.tags = unique.join(' ');
+    let currentTags = parseTagsToArray(state.tags);
+    for (const t of tagsArray) currentTags = mergeFilterToken(currentTags, t);
+    state.tags = currentTags.join(' ');
     tagInput.value = '';
     state.page = 0;
     updateActiveTagsDisplay();
@@ -675,10 +700,20 @@ export function renderViewerTags(tags) {
             e.stopPropagation();
             const tag = (chip.dataset.tag || chip.textContent || '').trim();
             if (!tag) return;
-            const current = parseTagsToArray(state.tags);
-            if (!current.includes(tag)) current.push(tag);
-            state.tags = current.join(' ');
-            tagInput.value = '';
+            state.tags = mergeFilterToken(parseTagsToArray(state.tags), tag).join(' ');
+            if (tagInput) tagInput.value = '';
+            state.page = 0;
+            updateActiveTagsDisplay();
+            closeViewerFn();
+            loadMedia(0);
+        });
+        chip.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const tag = (chip.dataset.tag || chip.textContent || '').trim();
+            if (!tag) return;
+            state.tags = toggleExcludeToken(parseTagsToArray(state.tags), tag).join(' ');
+            if (tagInput) tagInput.value = '';
             state.page = 0;
             updateActiveTagsDisplay();
             closeViewerFn();
