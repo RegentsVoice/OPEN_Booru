@@ -28,7 +28,7 @@ All media is encrypted **per user** with AES. You fully control your data — no
 | **Favorites** | Mark and quickly access your favorite posts. |
 | **Roles & multi-user** | Support for multiple users with different roles (owner / admin / user). |
 | **Booru import** | One-click import from popular imageboards (see list below). |
-| **Multilingual UI** | Interface available in 8 languages. |
+| **Multilingual UI** | Interface available in 3 languages. |
 | **Images + Video + GIF** | Native support for common image formats, animated GIFs and videos. |
 | **Modern web UI** | Clean, responsive gallery, viewer, upload and settings pages. |
 
@@ -207,7 +207,7 @@ http://localhost:3001
 | **Избранное** | Отмечайте и быстро находите любимые посты. |
 | **Роли и мультипользователь** | Поддержка нескольких пользователей с разными ролями (owner / admin / user). |
 | **Импорт с борд** | Импорт одним кликом с популярных имиджборд (список ниже). |
-| **Многоязычный интерфейс** | UI на 8 языках. |
+| **Многоязычный интерфейс** | UI на 3 языках. |
 | **Изображения + Видео + GIF** | Поддержка обычных изображений, анимированных GIF и видео. |
 | **Современный веб-интерфейс** | Чистая и адаптивная галерея, просмотрщик, загрузка и настройки. |
 
