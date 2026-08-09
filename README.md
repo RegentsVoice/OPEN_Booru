@@ -24,7 +24,7 @@ All media is encrypted **per user** with AES. You fully control your data — no
 |---------|-------------|
 | **Per-user AES encryption** | Each user’s media is encrypted with their own key. Even the server admin cannot read other users’ files without the password. |
 | **Duplicate detection** | CLIP embeddings + dHash frame matching for images, video and GIF (including gif↔video). Tunable thresholds, dual-viewer review UI. |
-| **Tags & search** | Full tagging system with fast search and filtering. |
+| **Tags & search** | Tag filters, exclude tags (`-tag`), and meta operators (`type:`, `sort:`, `fav:`) in the search bar. |
 | **Favorites** | Mark and quickly access your favorite posts. |
 | **Roles & multi-user** | Support for multiple users with different roles (owner / admin / user). |
 | **Booru import** | One-click import from popular imageboards (see list below). |
@@ -41,6 +41,30 @@ Settings → **Duplicates**:
 - Separate tabs for general, images, video/GIF and cross-type parameters.
 - Review UI: side-by-side cards with **Delete** under each item and **Skip** for the pair.
 - First scan downloads the local CLIP model (~150 MB). Requires **ffmpeg**.
+
+### Search & meta filters
+
+Type tags and operators in the search field.
+
+| Token | Effect |
+|-------|--------|
+| `tag` | Posts that have this tag (AND if several) |
+| `-tag` | Exclude posts with this tag |
+| `type:image` / `type:img` | Images only |
+| `type:video` | Videos only |
+| `type:gif` / `type:animation` | GIF / animations only |
+| `fav:true` / `fav:only` | Favorites only |
+| `sort:newest` / `sort:new` | Newest first (default) |
+| `sort:oldest` / `sort:old` | Oldest first |
+| `sort:random` | Random order |
+| `sort:duration_max` | Longest duration first |
+| `sort:duration_min` | Shortest duration first |
+
+**UI tips**
+
+- Right-click a tag chip (active filter or in the viewer) to add it as `-tag`, or toggle exclude ↔ include.
+- Meta chips use a distinct color; exclude chips are marked in red.
+- Example: `type:video sort:duration_max -lowres`
 
 ### Supported Booru Import Sources
 
@@ -105,6 +129,7 @@ cd $HOME\OPEN_Booru; npm start
 
 The installer will:
 - Install Node.js if needed
+- Install **ffmpeg** if missing (for duplicates / video frames)
 - Clone the repository into `~/OPEN_Booru` (or `$HOME\OPEN_Booru`)
 - Download the required `spark-md5.min.js`
 - Run `npm install`
@@ -157,7 +182,7 @@ http://localhost:3001
 1. Open the address in your browser.
 2. Create the first account (it becomes admin / owner).
 3. Upload media or import from supported boorus.
-4. Organize with tags and favorites.
+4. Organize with tags, favorites, and meta filters (`type:`, `sort:`, `-tag`).
 
 ### License
 
@@ -178,7 +203,7 @@ http://localhost:3001
 |-------------|----------|
 | **Шифрование AES на пользователя** | Медиа каждого пользователя шифруется своим ключом. Даже администратор сервера не может прочитать чужие файлы без пароля. |
 | **Поиск дубликатов** | CLIP-эмбеддинги + совпадение dHash-кадров для картинок, видео и GIF (в том числе gif↔video). Настраиваемые пороги и разбор пар бок о бок. |
-| **Теги и поиск** | Полноценная система тегов с быстрым поиском и фильтрацией. |
+| **Теги и поиск** | Фильтры по тегам, исключение (`-tag`) и мета-операторы (`type:`, `sort:`, `fav:`) в строке поиска. |
 | **Избранное** | Отмечайте и быстро находите любимые посты. |
 | **Роли и мультипользователь** | Поддержка нескольких пользователей с разными ролями (owner / admin / user). |
 | **Импорт с борд** | Импорт одним кликом с популярных имиджборд (список ниже). |
@@ -195,6 +220,30 @@ http://localhost:3001
 - Отдельные вкладки параметров: общие, картинки, video/GIF, разные типы.
 - Разбор: две карточки, под каждой **Удалить**, снизу **Пропустить**.
 - Первый скан скачивает локальную CLIP-модель (~150 МБ). Нужен **ffmpeg**.
+
+### Поиск и мета-фильтры
+
+В строке поиска можно вводить теги и операторы.
+
+| Токен | Действие |
+|-------|----------|
+| `tag` | Посты с этим тегом (несколько тегов — AND) |
+| `-tag` | Исключить посты с этим тегом |
+| `type:image` / `type:img` | Только изображения |
+| `type:video` | Только видео |
+| `type:gif` / `type:animation` | Только GIF / анимации |
+| `fav:true` / `fav:only` | Только избранное |
+| `sort:newest` / `sort:new` | Сначала новые (по умолчанию) |
+| `sort:oldest` / `sort:old` | Сначала старые |
+| `sort:random` | Случайный порядок |
+| `sort:duration_max` | Сначала самые длинные |
+| `sort:duration_min` | Сначала самые короткие |
+
+**Подсказки по UI**
+
+- ПКМ по таблетке тега (активный фильтр или в просмотрщике) — добавить как `-tag` или переключить exclude ↔ include.
+- Мета-таблетки другого цвета; исключённые — красным.
+- Пример: `type:video sort:duration_max -lowres`
 
 ### Поддерживаемые борды для импорта
 
@@ -259,6 +308,7 @@ cd $HOME\OPEN_Booru; npm start
 
 Установщик:
 - Установит Node.js при необходимости
+- Установит **ffmpeg**, если его нет (дубликаты / кадры видео)
 - Склонирует репозиторий в `~/OPEN_Booru`
 - Скачает `spark-md5.min.js`
 - Выполнит `npm install`
@@ -310,7 +360,7 @@ http://localhost:3001
 
 1. Создайте первый аккаунт (он станет владельцем / администратором).
 2. Загружайте медиа или импортируйте с поддерживаемых борд.
-3. Организуйте контент с помощью тегов и избранного.
+3. Организуйте контент тегами, избранным и мета-фильтрами (`type:`, `sort:`, `-tag`).
 
 ### Лицензия
 
