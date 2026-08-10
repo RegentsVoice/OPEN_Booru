@@ -430,7 +430,7 @@ function bindEvents() {
                 const url = URL.createObjectURL(blob);
                 const link = document.createElement('a');
                 link.href = url;
-                link.download = 'open-booru-export.zip';
+                link.download = 'open-booru-export.tar';
                 document.body.appendChild(link);
                 link.click();
                 link.remove();

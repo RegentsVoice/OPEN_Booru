@@ -12,7 +12,7 @@ import {
     saveUserDatabases, unloadUserDatabases, loadUserDatabases,
     getUserDbPath, getUserMediaPath
 } from '../db/index.js';
-import { createZipFromDir, extractZip } from '../lib/zip-util.js';
+import { createArchiveFromDir, extractArchive, stageUserExport } from '../lib/zip-util.js';
 import os from 'os';
 import multer from 'multer';
 import { translations, DEFAULT_LANG } from '../../shared/server-locales.js';
@@ -458,6 +458,8 @@ app.get('/api/user/export', (req, res) => {
     if (!req.session || !req.session.userId) {
         return res.status(401).json({ success: false, error: 'Unauthorized' });
     }
+    let staging = null;
+    let archivePath = null;
     try {
         const stmt = systemDb.prepare(`SELECT username, db_bid, media_bid FROM users WHERE id = ?`);
         stmt.bind([req.session.userId]);
@@ -472,47 +474,36 @@ app.get('/api/user/export', (req, res) => {
             saveUserDatabases(dbBid);
         }
 
-        const staging = fs.mkdtempSync(path.join(os.tmpdir(), 'ob-export-'));
-        const dbSrc = getUserDbPath(dbBid);
-        const mediaSrc = getUserMediaPath(mediaBid);
-        const dbDest = path.join(staging, 'db');
-        const mediaDest = path.join(staging, 'media');
-        fs.mkdirSync(dbDest, { recursive: true });
-        fs.mkdirSync(mediaDest, { recursive: true });
-
-        for (const f of ['main.db', 'tags.db', 'previews.db', 'master.key.enc']) {
-            const p = path.join(dbSrc, f);
-            if (fs.existsSync(p)) fs.copyFileSync(p, path.join(dbDest, f));
-        }
-        if (fs.existsSync(mediaSrc)) {
-            for (const name of fs.readdirSync(mediaSrc)) {
-                const full = path.join(mediaSrc, name);
-                if (fs.statSync(full).isFile()) {
-                    fs.copyFileSync(full, path.join(mediaDest, name));
-                }
+        staging = fs.mkdtempSync(path.join(os.tmpdir(), 'ob-export-'));
+        stageUserExport({
+            dbSrc: getUserDbPath(dbBid),
+            mediaSrc: getUserMediaPath(mediaBid),
+            staging,
+            meta: {
+                version: 1,
+                app: 'open-booru',
+                username,
+                exportedAt: Date.now()
             }
-        }
-        fs.writeFileSync(path.join(staging, 'meta.json'), JSON.stringify({
-            version: 1,
-            app: 'open-booru',
-            username,
-            exportedAt: Date.now()
-        }, null, 2));
+        });
 
-        const zipPath = path.join(os.tmpdir(), `ob-export-${dbBid}-${Date.now()}.zip`);
-        createZipFromDir(staging, zipPath);
+        archivePath = path.join(os.tmpdir(), `ob-export-${dbBid}-${Date.now()}.tar`);
+        createArchiveFromDir(staging, archivePath);
         try {
             fs.rmSync(staging, { recursive: true, force: true });
+            staging = null;
         } catch (_) {}
 
-        res.download(zipPath, `open-booru-${username || 'user'}-export.zip`, (err) => {
-            try { fs.unlinkSync(zipPath); } catch (_) {}
+        res.download(archivePath, `open-booru-${username || 'user'}-export.tar`, (err) => {
+            try { if (archivePath) fs.unlinkSync(archivePath); } catch (_) {}
             if (err && !res.headersSent) {
                 res.status(500).json({ success: false, error: err.message });
             }
         });
     } catch (err) {
         logger.error(`user export: ${err.message}`);
+        try { if (staging) fs.rmSync(staging, { recursive: true, force: true }); } catch (_) {}
+        try { if (archivePath) fs.unlinkSync(archivePath); } catch (_) {}
         res.status(500).json({ success: false, error: err.message });
     }
 });
@@ -542,7 +533,7 @@ app.post('/api/user/import', userImportUpload.single('file'), async (req, res) =
         stmt.free();
 
         staging = fs.mkdtempSync(path.join(os.tmpdir(), 'ob-import-'));
-        extractZip(zipPath, staging);
+        extractArchive(zipPath, staging);
 
         const metaPath = path.join(staging, 'meta.json');
         if (!fs.existsSync(metaPath)) {
