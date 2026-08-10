@@ -23,24 +23,39 @@ All media is encrypted **per user** with AES. You fully control your data — no
 | Feature | Description |
 |---------|-------------|
 | **Per-user AES encryption** | Each user’s media is encrypted with their own key. Even the server admin cannot read other users’ files without the password. |
-| **Duplicate detection** | CLIP embeddings + dHash frame matching for images, video and GIF (including gif↔video). Tunable thresholds, dual-viewer review UI. |
-| **Tags & search** | Tag filters, exclude tags (`-tag`), and meta operators (`type:`, `sort:`, `fav:`) in the search bar. |
+| **CLIP duplicates & search** | Local CLIP models for near-duplicate detection, semantic `search:` queries, and **Find similar** in the viewer. |
+| **Tags & search** | Tag filters, exclude tags (`-tag`), and meta operators (`type:`, `sort:`, `fav:`, `search:`, `similar:`) in the search bar. |
 | **Favorites** | Mark and quickly access your favorite posts. |
 | **Roles & multi-user** | Support for multiple users with different roles (owner / admin / user). |
 | **Booru import** | One-click import from popular imageboards (see list below). |
-| **Multilingual UI** | Interface available in 3 languages. |
+| **Export / import** | Full user data backup (encrypted databases + media) from Account settings. |
+| **Multilingual UI** | Interface in English, Russian, and Simplified Chinese. |
 | **Images + Video + GIF** | Native support for common image formats, animated GIFs and videos. |
-| **Modern web UI** | Clean, responsive gallery, viewer, upload and settings pages. |
+| **Modern web UI** | Clean, responsive gallery, viewer, upload and settings. |
 
-### Duplicate finder
+### CLIP (duplicates & semantic search)
 
-Settings → **Duplicates**:
+Settings → **CLIP**:
 
-- **CLIP** cosine similarity for near-duplicates (crops, re-encodes, similar frames).
-- **dHash frame hits** for video / GIF confirmation (and gif↔video / image↔video pairs).
-- Separate tabs for general, images, video/GIF and cross-type parameters.
-- Review UI: side-by-side cards with **Delete** under each item and **Skip** for the pair.
-- First scan downloads the local CLIP model (~150 MB). Requires **ffmpeg**.
+| Tab | Purpose |
+|-----|---------|
+| **Detection** | Cosine similarity thresholds (same type / cross-type), workers, same-type-only. **Scan** rebuilds the pairs table. |
+| **Search** | Min similarity for `search:` and for **Find similar**. |
+| **Models** | Install, activate, or delete CLIP models (quantized and full). Models are stored under the project `models/` folder. |
+
+**How it works**
+
+- Embeddings are computed with a local CLIP vision model (`@xenova/transformers`). New uploads are embedded incrementally.
+- Near-duplicate **pairs** are stored in a dedicated table after **Scan** and are not recomputed on every Review open.
+- **Review** opens a paginated gallery of pairs (card size follows the main gallery). Click a pair to open a full-screen comparison modal (media stretched like the viewer). Actions at the bottom: **Delete left** · **Skip** · **Delete right**.
+- Requires **ffmpeg** for video/GIF frame sampling.
+
+**Semantic search**
+
+| Token | Effect |
+|-------|--------|
+| `search:red_car` | Rank gallery by CLIP text↔image similarity (underscore = space). |
+| **Find similar** (viewer) | Adds `similar:<id>` and ranks by vision embedding closeness. |
 
 ### Search & meta filters
 
@@ -52,43 +67,34 @@ Type tags and operators in the search field.
 | `-tag` | Exclude posts with this tag |
 | `type:image` / `type:img` | Images only |
 | `type:video` | Videos only |
-| `type:gif` / `type:animation` | GIF / animations only |
-| `fav:true` / `fav:only` | Favorites only |
-| `sort:newest` / `sort:new` | Newest first (default) |
-| `sort:oldest` / `sort:old` | Oldest first |
+| `type:animation` | GIF / animations only (`type:gif` works while typing) |
+| `fav:only` | Favorites only |
+| `sort:newest` | Newest first (default) |
+| `sort:oldest` | Oldest first |
 | `sort:random` | Random order |
 | `sort:duration_max` | Longest duration first |
 | `sort:duration_min` | Shortest duration first |
+| `search:…` | Semantic text search (CLIP) |
+| `similar:ID` | Visually similar to media `ID` |
 
 **UI tips**
 
-- Right-click a tag chip (active filter or in the viewer) to add it as `-tag`, or toggle exclude ↔ include.
-- Meta chips use a distinct color; exclude chips are marked in red.
+- Selected tags: meta chips stay at the start of the list; exclude tags (`-tag`) stay at the end.
+- Right-click a tag chip to toggle exclude ↔ include.
 - Example: `type:video sort:duration_max -lowres`
 
-### Supported Booru Import Sources
+### Supported Booru import sources
 
-- Gelbooru
-- Rule34
-- Realbooru
-- Xbooru
-- Hypnohub
-- TBIB
-- Safebooru
-- Derpibooru
-- Furbooru
-- Ponybooru
-- Danbooru
-- e621
-- Yande.re
-- Konachan
+- Gelbooru, Rule34, Realbooru, Xbooru, Hypnohub, TBIB, Safebooru  
+- Derpibooru, Furbooru, Ponybooru  
+- Danbooru, e621, Yande.re, Konachan  
 
 ### Requirements
 
 - **Node.js ≥ 18** (recommended ≥ 20)
-- **ffmpeg** (for video/GIF hashing and CLIP frame sampling)
+- **ffmpeg** (video/GIF frames for CLIP embeddings)
 - `git` and `curl` (for automatic install)
-- ~50–100 MB disk for the app; first duplicate scan also needs ~150 MB for the CLIP model (media storage is separate)
+- ~50–100 MB for the app; CLIP models ~50–300 MB each under `models/` (media storage is separate)
 
 ### Screenshots
 
@@ -103,7 +109,7 @@ Type tags and operators in the search field.
 |:---:|:---:|:---:|
 | ![](screenshots/settings.png) | ![](screenshots/import.png) | ![](screenshots/login.png) |
 
-| Duplicate review |
+| CLIP review |
 |:---:|
 | ![](screenshots/duplicates.png) |
 
@@ -128,11 +134,12 @@ cd $HOME\OPEN_Booru; npm start
 ```
 
 The installer will:
-- Install Node.js if needed
-- Install **ffmpeg** if missing (for duplicates / video frames)
-- Clone the repository into `~/OPEN_Booru` (or `$HOME\OPEN_Booru`)
-- Download the required `spark-md5.min.js`
-- Run `npm install`
+
+- Install Node.js if needed  
+- Install **ffmpeg** if missing  
+- Clone the repository into `~/OPEN_Booru` (or `$HOME\OPEN_Booru`)  
+- Download `spark-md5.min.js`  
+- Run `npm install`  
 
 #### 2. Manual
 
@@ -145,7 +152,7 @@ npm install
 npm start
 ```
 
-Install **ffmpeg** on the host if you plan to use duplicate detection for video/GIF.
+Install **ffmpeg** on the host if you use CLIP features for video/GIF.
 
 #### 3. Docker
 
@@ -166,6 +173,7 @@ DF
 docker run -d --name open-booru -p 3001:3001 \
   -v open-booru-data:/app/database \
   -v open-booru-media:/app/media \
+  -v open-booru-models:/app/models \
   -v open-booru-logs:/app/logs \
   -e PORT=3001 \
   open-booru
@@ -179,10 +187,11 @@ After starting the server:
 http://localhost:3001
 ```
 
-1. Open the address in your browser.
-2. Create the first account (it becomes admin / owner).
-3. Upload media or import from supported boorus.
-4. Organize with tags, favorites, and meta filters (`type:`, `sort:`, `-tag`).
+1. Create the first account (it becomes admin / owner).  
+2. Upload media or import from supported boorus.  
+3. Organize with tags, favorites, and meta filters.  
+4. Optional: Settings → **CLIP** → install a model → **Scan** → **Review**.  
+5. Optional: Settings → **Account** → export a full encrypted backup or import one (password required).  
 
 ### License
 
@@ -202,72 +211,76 @@ http://localhost:3001
 | Возможность | Описание |
 |-------------|----------|
 | **Шифрование AES на пользователя** | Медиа каждого пользователя шифруется своим ключом. Даже администратор сервера не может прочитать чужие файлы без пароля. |
-| **Поиск дубликатов** | CLIP-эмбеддинги + совпадение dHash-кадров для картинок, видео и GIF (в том числе gif↔video). Настраиваемые пороги и разбор пар бок о бок. |
-| **Теги и поиск** | Фильтры по тегам, исключение (`-tag`) и мета-операторы (`type:`, `sort:`, `fav:`) в строке поиска. |
+| **CLIP: дубликаты и поиск** | Локальные CLIP-модели: поиск дубликатов, семантический `search:` и **Найти похожие** в просмотрщике. |
+| **Теги и поиск** | Фильтры по тегам, исключение (`-tag`) и мета-операторы (`type:`, `sort:`, `fav:`, `search:`, `similar:`). |
 | **Избранное** | Отмечайте и быстро находите любимые посты. |
-| **Роли и мультипользователь** | Поддержка нескольких пользователей с разными ролями (owner / admin / user). |
+| **Роли и мультипользователь** | Несколько пользователей с ролями owner / admin / user. |
 | **Импорт с борд** | Импорт одним кликом с популярных имиджборд (список ниже). |
-| **Многоязычный интерфейс** | UI на 3 языках. |
-| **Изображения + Видео + GIF** | Поддержка обычных изображений, анимированных GIF и видео. |
-| **Современный веб-интерфейс** | Чистая и адаптивная галерея, просмотрщик, загрузка и настройки. |
+| **Экспорт / импорт** | Полный бэкап данных пользователя (зашифрованные БД + медиа) в настройках аккаунта. |
+| **Многоязычный интерфейс** | UI: английский, русский, китайский (упрощённый). |
+| **Изображения + Видео + GIF** | Обычные изображения, анимированные GIF и видео. |
+| **Современный веб-интерфейс** | Адаптивная галерея, просмотрщик, загрузка и настройки. |
 
-### Поиск дубликатов
+### CLIP (дубликаты и семантический поиск)
 
-Настройки → **Дубликаты**:
+Настройки → **CLIP**:
 
-- **CLIP** (cosine) — похожие кадры, кропы, перекодировки.
-- **dHash-кадры** — подтверждение для video / GIF и пар gif↔video, image↔video.
-- Отдельные вкладки параметров: общие, картинки, video/GIF, разные типы.
-- Разбор: две карточки, под каждой **Удалить**, снизу **Пропустить**.
-- Первый скан скачивает локальную CLIP-модель (~150 МБ). Нужен **ffmpeg**.
+| Вкладка | Назначение |
+|---------|------------|
+| **Детекция** | Пороги cosine (один тип / между типами), workers, только один тип. **Скан** пересобирает таблицу пар. |
+| **Поиск** | Мин. схожесть для `search:` и для **Найти похожие**. |
+| **Модели** | Установка, активация и удаление CLIP-моделей (квантованные и полные). Файлы лежат в `models/` проекта. |
 
-### Поиск и мета-фильтры
+**Как это работает**
 
-В строке поиска можно вводить теги и операторы.
+- Эмбеддинги считает локальная CLIP vision-модель (`@xenova/transformers`). Новые загрузки обрабатываются сразу.
+- Пары дубликатов пишутся в отдельную таблицу после **Скана** и не пересчитываются при каждом открытии **Просмотра**.
+- **Просмотр** — галерея пар с пагинацией (размер карточек как в основной галерее). Клик по паре открывает модалку сравнения на весь экран. Снизу: **Удалить слева** · **Пропустить** · **Удалить справа**.
+- Нужен **ffmpeg** для выборки кадров video/GIF.
+
+**Семантический поиск**
 
 | Токен | Действие |
 |-------|----------|
-| `tag` | Посты с этим тегом (несколько тегов — AND) |
+| `search:красный_автомобиль` | Ранжирование по схожести текста и картинки (CLIP). Подчёркивание = пробел. |
+| **Найти похожие** (вювер) | Добавляет `similar:<id>` и сортирует по близости vision-эмбеддингов. |
+
+### Поиск и мета-фильтры
+
+| Токен | Действие |
+|-------|----------|
+| `tag` | Посты с этим тегом (несколько — AND) |
 | `-tag` | Исключить посты с этим тегом |
 | `type:image` / `type:img` | Только изображения |
 | `type:video` | Только видео |
-| `type:gif` / `type:animation` | Только GIF / анимации |
-| `fav:true` / `fav:only` | Только избранное |
-| `sort:newest` / `sort:new` | Сначала новые (по умолчанию) |
-| `sort:oldest` / `sort:old` | Сначала старые |
+| `type:animation` | Только GIF / анимации (`type:gif` доступен при наборе) |
+| `fav:only` | Только избранное |
+| `sort:newest` | Сначала новые (по умолчанию) |
+| `sort:oldest` | Сначала старые |
 | `sort:random` | Случайный порядок |
 | `sort:duration_max` | Сначала самые длинные |
 | `sort:duration_min` | Сначала самые короткие |
+| `search:…` | Семантический текстовый поиск (CLIP) |
+| `similar:ID` | Визуально похожие на медиа `ID` |
 
 **Подсказки по UI**
 
-- ПКМ по таблетке тега (активный фильтр или в просмотрщике) — добавить как `-tag` или переключить exclude ↔ include.
-- Мета-таблетки другого цвета; исключённые — красным.
+- В выбранных тегах мета всегда в начале списка, исключённые (`-tag`) — в конце.
+- ПКМ по таблетке тега — переключить exclude ↔ include.
 - Пример: `type:video sort:duration_max -lowres`
 
 ### Поддерживаемые борды для импорта
 
-- Gelbooru
-- Rule34
-- Realbooru
-- Xbooru
-- Hypnohub
-- TBIB
-- Safebooru
-- Derpibooru
-- Furbooru
-- Ponybooru
-- Danbooru
-- e621
-- Yande.re
-- Konachan
+- Gelbooru, Rule34, Realbooru, Xbooru, Hypnohub, TBIB, Safebooru  
+- Derpibooru, Furbooru, Ponybooru  
+- Danbooru, e621, Yande.re, Konachan  
 
 ### Требования
 
 - **Node.js ≥ 18** (рекомендуется ≥ 20)
-- **ffmpeg** (хеширование video/GIF и кадры для CLIP)
+- **ffmpeg** (кадры video/GIF для CLIP)
 - `git` и `curl` (для автоматической установки)
-- ~50–100 МБ под приложение; первый скан дубликатов — ещё ~150 МБ под CLIP-модель (медиа хранится отдельно)
+- ~50–100 МБ под приложение; модели CLIP ~50–300 МБ каждая в `models/` (медиа хранится отдельно)
 
 ### Скриншоты
 
@@ -282,7 +295,7 @@ http://localhost:3001
 |:---:|:---:|:---:|
 | ![](screenshots/settings.png) | ![](screenshots/import.png) | ![](screenshots/login.png) |
 
-| Разбор дубликатов |
+| Разбор CLIP |
 |:---:|
 | ![](screenshots/duplicates.png) |
 
@@ -307,11 +320,12 @@ cd $HOME\OPEN_Booru; npm start
 ```
 
 Установщик:
-- Установит Node.js при необходимости
-- Установит **ffmpeg**, если его нет (дубликаты / кадры видео)
-- Склонирует репозиторий в `~/OPEN_Booru`
-- Скачает `spark-md5.min.js`
-- Выполнит `npm install`
+
+- Установит Node.js при необходимости  
+- Установит **ffmpeg**, если его нет  
+- Склонирует репозиторий в `~/OPEN_Booru`  
+- Скачает `spark-md5.min.js`  
+- Выполнит `npm install`  
 
 #### 2. Ручная
 
@@ -324,7 +338,7 @@ npm install
 npm start
 ```
 
-Для поиска дубликатов video/GIF установите на хост **ffmpeg**.
+Для CLIP по video/GIF установите на хост **ffmpeg**.
 
 #### 3. Docker
 
@@ -345,6 +359,7 @@ DF
 docker run -d --name open-booru -p 3001:3001 \
   -v open-booru-data:/app/database \
   -v open-booru-media:/app/media \
+  -v open-booru-models:/app/models \
   -v open-booru-logs:/app/logs \
   -e PORT=3001 \
   open-booru
@@ -352,15 +367,17 @@ docker run -d --name open-booru -p 3001:3001 \
 
 ### Использование
 
-После запуска сервера откройте в браузере:
+После запуска сервера откройте:
 
 ```
 http://localhost:3001
 ```
 
-1. Создайте первый аккаунт (он станет владельцем / администратором).
-2. Загружайте медиа или импортируйте с поддерживаемых борд.
-3. Организуйте контент тегами, избранным и мета-фильтрами (`type:`, `sort:`, `-tag`).
+1. Создайте первый аккаунт (он станет владельцем / администратором).  
+2. Загружайте медиа или импортируйте с поддерживаемых борд.  
+3. Организуйте контент тегами, избранным и мета-фильтрами.  
+4. По желанию: Настройки → **CLIP** → установить модель → **Скан** → **Просмотр**.  
+5. По желанию: Настройки → **Аккаунт** → экспорт полного зашифрованного бэкапа или импорт (нужен пароль).  
 
 ### Лицензия
 

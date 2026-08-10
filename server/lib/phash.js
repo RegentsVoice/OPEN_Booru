@@ -1,3 +1,5 @@
+import os from 'os';
+import path from 'path';
 import { spawn } from 'child_process';
 import fs from 'fs';
 import { logger } from '../config.js';
@@ -102,76 +104,98 @@ function runFfmpeg(args, stdinBuf = null, timeoutMs = 120000) {
     });
 }
 
+function writeTempMedia(buf) {
+    const p = path.join(os.tmpdir(), `phash-in-${Date.now()}-${Math.random().toString(36).slice(2)}.bin`);
+    fs.writeFileSync(p, buf);
+    return p;
+}
+
 function probeDurationFromBuffer(buf) {
     return new Promise((resolve) => {
+        const src = writeTempMedia(buf);
         const proc = spawn('ffprobe', [
             '-v', 'error',
             '-show_entries', 'format=duration',
             '-of', 'default=noprint_wrappers=1:nokey=1',
-            '-i', 'pipe:0'
-        ], { stdio: ['pipe', 'pipe', 'pipe'] });
+            '-i', src
+        ], { stdio: ['ignore', 'pipe', 'pipe'] });
         let out = '';
         proc.stdout.on('data', (c) => { out += c.toString(); });
+        const cleanup = () => { try { fs.unlinkSync(src); } catch (_) {} };
         proc.on('close', () => {
+            cleanup();
             const d = parseFloat(out.trim());
             resolve(Number.isFinite(d) ? d : 0);
         });
-        proc.on('error', () => resolve(0));
-        if (proc.stdin) {
-            proc.stdin.on('error', () => {});
-            proc.stdin.end(buf);
-        }
+        proc.on('error', () => {
+            cleanup();
+            resolve(0);
+        });
     });
 }
 
 export async function dhashBuffer(mediaBuf, vfExtra = null) {
     const scale = `scale=${DHASH_W}:${DHASH_H}:flags=bilinear,format=gray`;
     const vf = vfExtra ? `${vfExtra},${scale}` : scale;
-    const args = [
-        '-hide_banner', '-loglevel', 'error',
-        '-i', 'pipe:0',
-        '-vf', vf,
-        '-frames:v', '1',
-        '-f', 'rawvideo',
-        'pipe:1'
-    ];
-    const buf = await runFfmpeg(args, mediaBuf);
-    return bufferToDHash(buf);
+    const src = writeTempMedia(mediaBuf);
+    try {
+        const args = [
+            '-hide_banner', '-loglevel', 'error',
+            '-y',
+            '-i', src,
+            '-an',
+            '-vf', vf,
+            '-frames:v', '1',
+            '-f', 'rawvideo',
+            'pipe:1'
+        ];
+        const buf = await runFfmpeg(args, null);
+        return bufferToDHash(buf);
+    } finally {
+        try { fs.unlinkSync(src); } catch (_) {}
+    }
 }
 
 async function dhashBufferPermissive(mediaBuf, vfExtra = null) {
     const scale = `scale=${DHASH_W}:${DHASH_H}:flags=bilinear,format=gray`;
     const vf = vfExtra ? `${vfExtra},${scale}` : scale;
-    const args = [
-        '-hide_banner', '-loglevel', 'error',
-        '-i', 'pipe:0',
-        '-vf', vf,
-        '-frames:v', '1',
-        '-f', 'rawvideo',
-        'pipe:1'
-    ];
-    const buf = await runFfmpeg(args, mediaBuf);
-    if (!buf || buf.length < RAW_SIZE) return null;
+    const src = writeTempMedia(mediaBuf);
+    try {
+        const args = [
+            '-hide_banner', '-loglevel', 'error',
+            '-y',
+            '-i', src,
+            '-an',
+            '-vf', vf,
+            '-frames:v', '1',
+            '-f', 'rawvideo',
+            'pipe:1'
+        ];
+        const buf = await runFfmpeg(args, null);
+        if (!buf || buf.length < RAW_SIZE) return null;
 
-    let min = 255, max = 0;
-    for (let i = 0; i < RAW_SIZE; i++) {
-        const v = buf[i];
-        if (v < min) min = v;
-        if (v > max) max = v;
-    }
-    if (max - min < 4) return null;
-
-    let bits = '';
-    for (let y = 0; y < DHASH_H; y++) {
-        for (let x = 0; x < DHASH_W - 1; x++) {
-            bits += buf[y * DHASH_W + x] < buf[y * DHASH_W + x + 1] ? '1' : '0';
+        let min = 255, max = 0;
+        for (let i = 0; i < RAW_SIZE; i++) {
+            const v = buf[i];
+            if (v < min) min = v;
+            if (v > max) max = v;
         }
+        if (max - min < 4) return null;
+
+        let bits = '';
+        for (let y = 0; y < DHASH_H; y++) {
+            for (let x = 0; x < DHASH_W - 1; x++) {
+                bits += buf[y * DHASH_W + x] < buf[y * DHASH_W + x + 1] ? '1' : '0';
+            }
+        }
+        let hex = '';
+        for (let i = 0; i < 64; i += 4) {
+            hex += parseInt(bits.slice(i, i + 4), 2).toString(16);
+        }
+        return hex;
+    } finally {
+        try { fs.unlinkSync(src); } catch (_) {}
     }
-    let hex = '';
-    for (let i = 0; i < 64; i += 4) {
-        hex += parseInt(bits.slice(i, i + 4), 2).toString(16);
-    }
-    return hex;
 }
 
 export async function dhashImageVariants(mediaBuf) {
@@ -246,9 +270,12 @@ export async function dhashVideoFramesBuffer(mediaBuf, opts = {}) {
     }
 
     const fps = 1 / Math.max(0.5, intervalSec);
+    const src = writeTempMedia(mediaBuf);
     const args = [
         '-hide_banner', '-loglevel', 'error',
-        '-i', 'pipe:0',
+        '-y',
+        '-i', src,
+        '-an',
         '-vf', `fps=${fps},scale=${DHASH_W}:${DHASH_H}:flags=bilinear,format=gray`,
         '-frames:v', String(maxFrames),
         '-f', 'rawvideo',
@@ -257,8 +284,7 @@ export async function dhashVideoFramesBuffer(mediaBuf, opts = {}) {
 
     let raw;
     try {
-
-        raw = await runFfmpeg(args, mediaBuf, 600000);
+        raw = await runFfmpeg(args, null, 600000);
     } catch (err) {
         logger.warn(`dhash video pass failed: ${err.message}`);
         try {
@@ -267,6 +293,8 @@ export async function dhashVideoFramesBuffer(mediaBuf, opts = {}) {
         } catch {
             return [];
         }
+    } finally {
+        try { fs.unlinkSync(src); } catch (_) {}
     }
 
     const results = [];

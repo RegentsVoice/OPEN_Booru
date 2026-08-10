@@ -1,14 +1,46 @@
 import fs from 'fs';
 import path from 'path';
 import {
-    logger, st
+    logger, st, accessConfig, clampClipSearchMin, clampClipSimilarMin
 } from '../config.js';
 import {
     saveUserDatabases, cleanupOrphanedTags
 } from '../db/index.js';
+import {
+    embedText,
+    embeddingFromBase64,
+    cosineSimilarity,
+    averageEmbeddings
+} from '../lib/embed.js';
+
+function enrichPost(db, post) {
+    delete post.encryption_iv;
+    delete post.embedding;
+
+    const tagStmt = db.tags.prepare(`SELECT t.name FROM media_tags mt JOIN tags t ON mt.tag_id = t.id WHERE mt.media_id = ?`);
+    tagStmt.bind([post.id]);
+    const tags = [];
+    while (tagStmt.step()) tags.push(tagStmt.get()[0]);
+    tagStmt.free();
+    post.tags = tags;
+
+    post.file_url = `/media/${post.file_hash}`;
+
+    const posterStmt = db.previews.prepare(`SELECT 1 FROM previews WHERE media_id = ?`);
+    posterStmt.bind([post.id]);
+    const hasPoster = posterStmt.step();
+    posterStmt.free();
+    post.poster_url = hasPoster ? `/poster/${post.file_hash}?t=${post.created_at || Date.now()}` : null;
+
+    const favStmt = db.main.prepare(`SELECT 1 FROM favorites WHERE media_id = ?`);
+    favStmt.bind([post.id]);
+    post.is_favorite = favStmt.step();
+    favStmt.free();
+    return post;
+}
 
 export function registerGalleryRoutes(app) {
-app.get('/api/media', (req, res) => {
+app.get('/api/media', async (req, res) => {
     try {
         const db = req.db;
         const page = parseInt(req.query.page) || 0;
@@ -20,6 +52,8 @@ app.get('/api/media', (req, res) => {
         const tokens = String(tagsFilter).trim().split(/\s+/).filter(Boolean);
         const includeTags = [];
         const excludeTags = [];
+        const searchParts = [];
+        let similarId = null;
         const typeSet = new Set();
         let sortMode = 'newest';
 
@@ -57,6 +91,16 @@ app.get('/api/media', (req, res) => {
             if (lower.startsWith('sort:')) {
                 const mapped = mapSort(lower.slice(5));
                 if (mapped) sortMode = mapped;
+                continue;
+            }
+            if (lower.startsWith('search:')) {
+                const q = t.slice(7).replace(/_/g, ' ').trim();
+                if (q) searchParts.push(q);
+                continue;
+            }
+            if (lower.startsWith('similar:')) {
+                const id = parseInt(lower.slice(8), 10);
+                if (id > 0) similarId = id;
                 continue;
             }
             if (t.startsWith('-') && t.length > 1) {
@@ -119,6 +163,84 @@ app.get('/api/media', (req, res) => {
         }
 
         const whereSql = whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : '';
+        const semantic = searchParts.length > 0 || similarId;
+
+        if (semantic) {
+            whereClauses.push(`m.embedding IS NOT NULL AND m.embedding != ''`);
+            const whereSem = whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : '';
+            const dataSql = `SELECT m.* FROM media m ${whereSem}`;
+            const dataStmt = db.main.prepare(dataSql);
+            if (params.length > 0) dataStmt.bind(params);
+
+            let queryEmb = null;
+            if (similarId) {
+                const sStmt = db.main.prepare(`SELECT embedding FROM media WHERE id = ?`);
+                sStmt.bind([similarId]);
+                if (sStmt.step()) {
+                    queryEmb = embeddingFromBase64(sStmt.get()[0]);
+                }
+                sStmt.free();
+            }
+            if (!queryEmb && searchParts.length) {
+                const queryVecs = [];
+                for (const part of searchParts) {
+                    const v = await embedText(part);
+                    if (v) queryVecs.push(v);
+                }
+                queryEmb = averageEmbeddings(queryVecs);
+            }
+            if (!queryEmb) {
+                dataStmt.free();
+                return res.json({
+                    success: true,
+                    posts: [],
+                    totalCount: 0,
+                    totalPages: 0,
+                    currentPage: page,
+                    semantic: true
+                });
+            }
+
+            const minSim = similarId
+                ? clampClipSimilarMin(accessConfig.clipSimilarMin)
+                : clampClipSearchMin(accessConfig.clipSearchMin);
+            const scored = [];
+            while (dataStmt.step()) {
+                const row = dataStmt.get();
+                const columns = dataStmt.getColumnNames();
+                const post = {};
+                for (let i = 0; i < columns.length; i++) post[columns[i]] = row[i];
+                if (similarId && post.id === similarId) continue;
+                const emb = embeddingFromBase64(post.embedding);
+                if (!emb) continue;
+                const sim = cosineSimilarity(queryEmb, emb);
+                if (sim < minSim) continue;
+                post._sim = sim;
+                scored.push(post);
+            }
+            dataStmt.free();
+
+            scored.sort((a, b) => (b._sim || 0) - (a._sim || 0));
+            const totalCount = scored.length;
+            const pageItems = scored.slice(page * limit, page * limit + limit);
+            const posts = pageItems.map((p) => {
+                const sim = p._sim;
+                delete p._sim;
+                const out = enrichPost(db, p);
+                out.search_score = Math.round(sim * 1000) / 1000;
+                return out;
+            });
+
+            return res.json({
+                success: true,
+                posts,
+                totalCount,
+                totalPages: Math.ceil(totalCount / limit),
+                currentPage: page,
+                semantic: true
+            });
+        }
+
         let orderSql = `ORDER BY m.created_at DESC`;
         if (sortMode === 'oldest') orderSql = `ORDER BY m.created_at ASC`;
         else if (sortMode === 'random') orderSql = `ORDER BY RANDOM()`;
@@ -143,30 +265,7 @@ app.get('/api/media', (req, res) => {
             const columns = dataStmt.getColumnNames();
             const post = {};
             for (let i = 0; i < columns.length; i++) post[columns[i]] = row[i];
-
-            delete post.encryption_iv;
-
-            const tagStmt = db.tags.prepare(`SELECT t.name FROM media_tags mt JOIN tags t ON mt.tag_id = t.id WHERE mt.media_id = ?`);
-            tagStmt.bind([post.id]);
-            const tags = [];
-            while (tagStmt.step()) tags.push(tagStmt.get()[0]);
-            tagStmt.free();
-            post.tags = tags;
-
-            post.file_url = `/media/${post.file_hash}`;
-
-            const posterStmt = db.previews.prepare(`SELECT 1 FROM previews WHERE media_id = ?`);
-            posterStmt.bind([post.id]);
-            const hasPoster = posterStmt.step();
-            posterStmt.free();
-            post.poster_url = hasPoster ? `/poster/${post.file_hash}?t=${post.created_at || Date.now()}` : null;
-
-            const favStmt = db.main.prepare(`SELECT 1 FROM favorites WHERE media_id = ?`);
-            favStmt.bind([post.id]);
-            post.is_favorite = favStmt.step();
-            favStmt.free();
-
-            posts.push(post);
+            posts.push(enrichPost(db, post));
         }
         dataStmt.free();
 
@@ -274,6 +373,9 @@ app.delete('/api/media/:id', (req, res) => {
 
         db.main.run(`DELETE FROM favorites WHERE media_id = ?`, [id]);
         db.main.run(`DELETE FROM media WHERE id = ?`, [id]);
+        try { db.main.run(`DELETE FROM duplicate_pairs WHERE a_id = ? OR b_id = ?`, [id, id]); } catch (_) {}
+        try { db.main.run(`DELETE FROM duplicate_skips WHERE a_id = ? OR b_id = ?`, [id, id]); } catch (_) {}
+        try { db.main.run(`DELETE FROM media_frames WHERE media_id = ?`, [id]); } catch (_) {}
         db.tags.run(`DELETE FROM media_tags WHERE media_id = ?`, [id]);
         db.previews.run(`DELETE FROM previews WHERE media_id = ?`, [id]);
         cleanupOrphanedTags(db.tags);

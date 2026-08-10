@@ -68,47 +68,105 @@ export function parseTagsToArray(tagsString) {
     return tagsString.trim().split(/\s+/).filter(t => t);
 }
 
-export const META_FILTER_OPS = [
+export const META_FILTER_PRIMARY = [
     'type:image',
-    'type:img',
     'type:video',
-    'type:gif',
     'type:animation',
-    'fav:true',
     'fav:only',
     'sort:newest',
-    'sort:new',
     'sort:oldest',
-    'sort:old',
     'sort:random',
     'sort:duration_max',
-    'sort:duration_min'
+    'sort:duration_min',
+    'search:'
 ];
+
+export const META_FILTER_ALIASES = [
+    'type:img',
+    'type:gif'
+];
+
+export const META_FILTER_OPS = [...META_FILTER_PRIMARY, ...META_FILTER_ALIASES];
+
+export function metaOpsForQuery(matchQ) {
+    const q = String(matchQ || '').trim().toLowerCase();
+    if (!q) return META_FILTER_PRIMARY.slice();
+
+    
+    const bareKey = /^(type|sort|fav|search):?$/.test(q);
+    if (bareKey) {
+        return META_FILTER_PRIMARY.filter(
+            (op) => op.startsWith(q) || op.startsWith(q.replace(/:$/, '') + ':')
+        );
+    }
+
+    
+    const primaryHits = META_FILTER_PRIMARY.filter(
+        (op) => op.startsWith(q) || op.includes(q)
+    );
+    
+    const aliasHits = META_FILTER_ALIASES.filter((op) => op.startsWith(q));
+
+    const seen = new Set();
+    const out = [];
+    for (const op of [...primaryHits, ...aliasHits]) {
+        if (!seen.has(op)) {
+            seen.add(op);
+            out.push(op);
+        }
+    }
+    return out;
+}
 
 export function isMetaFilterToken(token) {
     if (!token || !token.includes(':')) return false;
     const lower = String(token).toLowerCase();
+    if (lower.startsWith('search:')) return true;
+    if (lower.startsWith('similar:')) return true;
     return META_FILTER_OPS.some(op => op === lower);
 }
 
+
+export function orderFilterTokens(list) {
+    const arr = (list || []).map((t) => String(t).trim()).filter(Boolean);
+    const meta = [];
+    const pos = [];
+    const neg = [];
+    for (const t of arr) {
+        if (t.startsWith('-') && t.length > 1 && !t.slice(1).includes(':')) {
+            neg.push(t);
+        } else if (isMetaFilterToken(t) || (t.includes(':') && /^(type|fav|sort|search|similar):/i.test(t))) {
+            meta.push(t);
+        } else {
+            pos.push(t);
+        }
+    }
+    return [...meta, ...pos, ...neg];
+}
+
 export function mergeFilterToken(list, token) {
-    if (!token) return list.slice();
+    if (!token) return orderFilterTokens(list);
     const raw = String(token).trim();
-    if (!raw) return list.slice();
+    if (!raw) return orderFilterTokens(list);
     let next = list.slice();
     const lower = raw.toLowerCase();
     if (lower.includes(':')) {
         const key = lower.split(':')[0];
+        if (key === 'search' || key === 'similar') {
+            next = next.filter(t => !String(t).toLowerCase().startsWith(key + ':'));
+            next.push(raw);
+            return orderFilterTokens(next);
+        }
         next = next.filter(t => !String(t).toLowerCase().startsWith(key + ':'));
         const canonical = META_FILTER_OPS.find(op => op === lower) || raw;
         next.push(canonical);
-        return next;
+        return orderFilterTokens(next);
     }
     const bare = raw.startsWith('-') ? raw.slice(1) : raw;
-    if (!bare) return next;
+    if (!bare) return orderFilterTokens(next);
     next = next.filter(t => t !== bare && t !== `-${bare}`);
     next.push(raw.startsWith('-') ? `-${bare}` : bare);
-    return next;
+    return orderFilterTokens(next);
 }
 
 export function toggleExcludeToken(list, tagName) {
@@ -122,7 +180,7 @@ export function toggleExcludeToken(list, tagName) {
     } else {
         next.push(bare);
     }
-    return next;
+    return orderFilterTokens(next);
 }
 
 export function showLoading() {

@@ -92,6 +92,18 @@ initSystemDb().then(() => {
     const host = accessConfig.localhostOnly ? '127.0.0.1' : '0.0.0.0';
     app.listen(accessConfig.port, host, () => {
         logger.info(st('serverRunning', { port: `${host}:${accessConfig.port}` }));
+        import('./lib/embed.js').then(({ preloadEmbedModel, getLoadedClipInfo }) => {
+            preloadEmbedModel()
+                .then((ok) => {
+                    if (ok) {
+                        const info = getLoadedClipInfo();
+                        logger.info(`CLIP ready: ${info.modelId} (quantized=${info.quantized})`);
+                    } else {
+                        logger.warn('CLIP preload skipped or failed');
+                    }
+                })
+                .catch((err) => logger.warn(`CLIP preload: ${err.message}`));
+        }).catch((err) => logger.warn(`CLIP import: ${err.message}`));
     });
 }).catch(err => {
     logger.error(st('databaseInitFailed', { error: err.message }));

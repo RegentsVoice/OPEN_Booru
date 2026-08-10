@@ -3,7 +3,7 @@ import { getLanguage, setLanguage, t } from './user-locales.js';
 import { state } from './state.js';
 import {
     applyLanguage, updateAllTexts, showAlert, showConfirm, escapeHtml, formatDate, parseTagsToArray,
-    META_FILTER_OPS, mergeFilterToken
+    META_FILTER_OPS, metaOpsForQuery, mergeFilterToken
 } from './utils.js';
 
 function getMediaUi() {
@@ -401,7 +401,6 @@ export async function saveAccessSettings() {
                 if (data.restartRequired) accessRestartHint.classList.remove('hidden');
                 else accessRestartHint.classList.add('hidden');
             }
-
             await applyRegistrationPolicy(data.registrationDisabled);
         } else {
             showToast(data.error || t('accessSettingsError'), 'error');
@@ -934,9 +933,8 @@ export function renderSuggestions(inputElement, tags, opts = {}) {
     const matchQ = excludePrefix ? prefix.slice(1) : prefix;
 
     if (isSearch) {
-        const metas = META_FILTER_OPS
-            .filter(op => !matchQ || op.startsWith(matchQ) || op.includes(matchQ))
-            .map(op => ({ name: op, count: 'meta', meta: true }));
+        
+        const metas = metaOpsForQuery(matchQ).map(op => ({ name: op, count: 'meta', meta: true }));
         list.unshift(...metas);
     } else if (excludePrefix && matchQ) {
         for (const tag of list) {

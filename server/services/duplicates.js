@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { logger } from '../config.js';
+import { logger, getClipModelId } from '../config.js';
 import { userDbs, getUserMediaPath, saveUserDatabases } from '../db/index.js';
 import {
     dhashBuffer,
@@ -26,7 +26,7 @@ import {
 export const scanJobs = new Map();
 
 const DEFAULT_THRESHOLD = 5;
-const DEFAULT_FRAME_INTERVAL = 3;
+const DEFAULT_FRAME_INTERVAL = 1;
 const MAX_FRAMES = 400;
 
 const DEFAULT_MIN_VIDEO_HITS = 4;
@@ -37,7 +37,7 @@ const DEFAULT_MIN_GIF_VIDEO_HITS = 2;
 
 const DEFAULT_COSINE_THRESHOLD = 0.93;
 
-const DEFAULT_CROSS_TYPE_COSINE = 0.90;
+const DEFAULT_CROSS_TYPE_COSINE = 0.93;
 
 const DEFAULT_SAME_TYPE_ONLY = false;
 const DEFAULT_CONCURRENCY = Math.min(
@@ -83,7 +83,72 @@ export function ensurePhashSchema(mainDb) {
             skipped_at INTEGER NOT NULL,
             PRIMARY KEY (a_id, b_id)
         );
+        CREATE TABLE IF NOT EXISTS duplicate_pairs (
+            a_id INTEGER NOT NULL,
+            b_id INTEGER NOT NULL,
+            similarity REAL,
+            distance REAL,
+            reason TEXT,
+            a_time REAL,
+            b_time REAL,
+            hit_count INTEGER DEFAULT 1,
+            created_at INTEGER NOT NULL,
+            PRIMARY KEY (a_id, b_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_dup_pairs_sim ON duplicate_pairs(similarity);
+        CREATE TABLE IF NOT EXISTS user_meta (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        );
     `);
+    syncClipModelMeta(mainDb);
+}
+
+export function syncClipModelMeta(mainDb) {
+    if (!mainDb) return false;
+    let changed = false;
+    try {
+        const modelId = getClipModelId();
+        let stored = null;
+        try {
+            const stmt = mainDb.prepare(`SELECT value FROM user_meta WHERE key = 'clip_model'`);
+            if (stmt.step()) stored = stmt.get()[0];
+            stmt.free();
+        } catch (_) {}
+        if (stored !== modelId) {
+            try {
+                mainDb.run(`UPDATE media SET embedding = NULL`);
+            } catch (_) {}
+            mainDb.run(
+                `INSERT OR REPLACE INTO user_meta (key, value) VALUES ('clip_model', ?)`,
+                [modelId]
+            );
+            changed = true;
+        }
+    } catch (err) {
+        logger.warn(`syncClipModelMeta: ${err.message}`);
+    }
+    return changed;
+}
+
+export function invalidateClipEmbeddingsForLoadedUsers() {
+    let n = 0;
+    for (const [, entry] of userDbs) {
+        if (!entry || !entry.main) continue;
+        try {
+            entry.main.exec(`CREATE TABLE IF NOT EXISTS user_meta (key TEXT PRIMARY KEY, value TEXT)`);
+            entry.main.run(`UPDATE media SET embedding = NULL`);
+            entry.main.run(
+                `INSERT OR REPLACE INTO user_meta (key, value) VALUES ('clip_model', ?)`,
+                [getClipModelId()]
+            );
+            if (entry.dbBid) saveUserDatabases(entry.dbBid);
+            n++;
+        } catch (err) {
+            logger.warn(`invalidate embeddings: ${err.message}`);
+        }
+    }
+    return n;
 }
 
 export async function computeMediaPhash(dbEntry, mediaRow) {
@@ -203,6 +268,7 @@ export function clearPhashData(dbBid) {
     if (!dbEntry) throw new Error('User database not loaded');
     ensurePhashSchema(dbEntry.main);
     dbEntry.main.run(`DELETE FROM media_frames`);
+    try { dbEntry.main.run(`DELETE FROM duplicate_pairs`); } catch (_) {}
     dbEntry.main.run(`UPDATE media SET phash = NULL, phash_status = 'pending', embedding = NULL`);
     saveUserDatabases(dbBid);
 }
@@ -215,7 +281,7 @@ export async function backfillPhashes(dbBid, onProgress, forceAll = true) {
     const rows = [];
     const where = forceAll
         ? ''
-        : `WHERE phash_status IS NULL OR phash_status != 'done' OR phash IS NULL`;
+        : `WHERE phash_status IS NULL OR phash_status != 'done' OR phash IS NULL OR embedding IS NULL`;
     const stmt = dbEntry.main.prepare(`
         SELECT id, file_hash, container_name, media_type, file_size, media_offset,
                encryption_iv, original_name, duration, phash_status
@@ -237,6 +303,7 @@ export async function backfillPhashes(dbBid, onProgress, forceAll = true) {
     let done = 0;
     const concurrency = scanOpts.concurrency || DEFAULT_CONCURRENCY;
     logger.info(`phash backfill: ${total} items, concurrency=${concurrency}, forceAll=${forceAll}`);
+    if (onProgress) onProgress(0, total, null);
 
     for (const row of rows) {
         try {
@@ -316,218 +383,278 @@ export function findDuplicatePairs(dbBid, threshold = DEFAULT_THRESHOLD) {
     const cosineTh = scanOpts.cosineThreshold || DEFAULT_COSINE_THRESHOLD;
     const crossTh = scanOpts.crossTypeCosine || DEFAULT_CROSS_TYPE_COSINE;
     const sameTypeOnly = !!scanOpts.sameTypeOnly;
-    const minVideoHits = scanOpts.minVideoHits || DEFAULT_MIN_VIDEO_HITS;
-    const minImageVideoHits = scanOpts.minImageVideoHits || DEFAULT_MIN_IMAGE_VIDEO_HITS;
-    const minGifHits = scanOpts.minGifHits || DEFAULT_MIN_GIF_HITS;
-    const minGifVideoHits = scanOpts.minGifVideoHits || DEFAULT_MIN_GIF_VIDEO_HITS;
-    const frameHamming = Math.min(10, Math.max(4, (threshold || DEFAULT_THRESHOLD) + 3));
 
-    const media = new Map();
+    const skips = new Set();
+    try {
+        const skipStmt = dbEntry.main.prepare(`SELECT a_id, b_id FROM duplicate_skips`);
+        while (skipStmt.step()) {
+            const [a, b] = skipStmt.get();
+            skips.add(`${Math.min(a, b)}:${Math.max(a, b)}`);
+        }
+        skipStmt.free();
+    } catch (_) {}
+
+    const items = [];
     const stmt = dbEntry.main.prepare(`
         SELECT id, file_hash, media_type, width, height, duration, file_size,
                original_name, display_name, created_at, phash, embedding
         FROM media
+        WHERE embedding IS NOT NULL AND embedding != ''
     `);
     while (stmt.step()) {
         const r = stmt.get();
         const emb = embeddingFromBase64(r[11]);
-        media.set(r[0], {
-            id: r[0], file_hash: r[1], media_type: r[2], width: r[3], height: r[4],
-            duration: r[5], file_size: r[6], original_name: r[7], display_name: r[8],
-            created_at: r[9], phash: r[10], embedding: emb,
-            frames: []
+        if (!emb || !emb.length) continue;
+        items.push({
+            id: r[0], file_hash: r[1], media_type: r[2] || 'unknown',
+            width: r[3], height: r[4], duration: r[5], file_size: r[6],
+            original_name: r[7], display_name: r[8], created_at: r[9],
+            phash: r[10], embedding: emb
         });
     }
     stmt.free();
 
-    const frameStmt = dbEntry.main.prepare(
-        `SELECT media_id, t, phash FROM media_frames ORDER BY media_id, t`
-    );
-    while (frameStmt.step()) {
-        const [mid, t, hash] = frameStmt.get();
-        const m = media.get(mid);
-        if (m) m.frames.push({ t, hash });
-    }
-    frameStmt.free();
-
-    const skips = new Set();
-    const skipStmt = dbEntry.main.prepare(`SELECT a_id, b_id FROM duplicate_skips`);
-    while (skipStmt.step()) {
-        const [a, b] = skipStmt.get();
-        skips.add(`${Math.min(a, b)}:${Math.max(a, b)}`);
-    }
-    skipStmt.free();
-
-    const items = [...media.values()];
     const pairs = [];
+    pairs._embCount = items.length;
+    const n = items.length;
 
-    const normalizeType = (t) => t || 'unknown';
-    const isMotion = (t) => t === 'video' || t === 'gif';
+    for (let i = 0; i < n; i++) {
+        const a = items[i];
+        const typeA = a.media_type || 'unknown';
+        const embA = a.embedding;
+        for (let j = i + 1; j < n; j++) {
+            const b = items[j];
+            const typeB = b.media_type || 'unknown';
+            if (sameTypeOnly && typeA !== typeB) continue;
 
-    const withEmb = items.filter((m) => m.embedding && m.embedding.length);
-    for (let i = 0; i < withEmb.length; i++) {
-        for (let j = i + 1; j < withEmb.length; j++) {
-            const a = withEmb[i];
-            const b = withEmb[j];
-            const key = `${Math.min(a.id, b.id)}:${Math.max(a.id, b.id)}`;
+            const key = a.id < b.id ? `${a.id}:${b.id}` : `${b.id}:${a.id}`;
             if (skips.has(key)) continue;
 
-            const typeA = normalizeType(a.media_type);
-            const typeB = normalizeType(b.media_type);
-            const sameType = typeA === typeB;
+            const needed = typeA === typeB ? cosineTh : crossTh;
+            const sim = cosineSimilarity(embA, b.embedding);
+            if (sim < needed) continue;
 
-            if (sameTypeOnly && !sameType) continue;
-
-            const bothMotion = isMotion(typeA) && isMotion(typeB);
-            const mixedMotion = bothMotion && typeA !== typeB;
-            const hasGif = typeA === 'gif' || typeB === 'gif';
-
-            if (bothMotion) {
-                const dA = a.duration || 0;
-                const dB = b.duration || 0;
-                if (dA > 0.5 && dB > 0.5) {
-                    const ratio = Math.max(dA, dB) / Math.min(dA, dB);
-                    const maxRatio = hasGif ? 12 : 3;
-                    if (ratio > maxRatio) continue;
-                }
-            }
-
-            let needed;
-            if (sameType) {
-                needed = cosineTh;
-            } else if (mixedMotion) {
-                needed = Math.min(cosineTh, 0.90);
-            } else {
-                needed = Math.max(cosineTh, crossTh);
-            }
-
-            const sim = cosineSimilarity(a.embedding, b.embedding);
-
-            let hitCount = 1;
-            let aTime = null;
-            let bTime = null;
-            let reasonExtra = '';
-            let accepted = false;
-
-            const motionPair = isMotion(typeA) || isMotion(typeB);
-            if (motionPair) {
-                const { hits, bestDist, aTime: at, bTime: bt } = countFrameHits(
-                    a.frames, b.frames, frameHamming
-                );
-                hitCount = hits;
-                aTime = at;
-                bTime = bt;
-
-                let minHits;
-                if (typeA === 'gif' && typeB === 'gif') {
-                    minHits = minGifHits;
-                } else if (mixedMotion) {
-                    minHits = minGifVideoHits;
-                } else if (bothMotion) {
-                    minHits = minVideoHits;
-                } else {
-                    minHits = minImageVideoHits;
-                }
-
-                const strongClip = sim >= Math.min(0.97, needed + 0.05);
-                const strongHits = hits >= Math.max(minHits + 1, 3);
-                const required = strongClip ? Math.max(1, Math.ceil(minHits / 2)) : minHits;
-
-                if (sim >= needed && hits >= required) {
-                    accepted = true;
-                    reasonExtra = `, hits=${hits}/${required}, d=${bestDist}`;
-                }
-                else if (strongHits && sim >= Math.max(0.82, cosineTh - 0.08)) {
-                    accepted = true;
-                    reasonExtra = `, hits=${hits} (frame-led), d=${bestDist}`;
-                }
-                else if (mixedMotion && hits >= Math.max(minHits, 3) && sim >= 0.80) {
-                    accepted = true;
-                    reasonExtra = `, hits=${hits} (gif↔video frames), d=${bestDist}`;
-                }
-
-                if (!accepted) continue;
-            } else {
-                if (sim < needed) continue;
-            }
-
-            const distance = Math.round((1 - sim) * 1000) / 1000;
             pairs.push({
                 a, b,
-                distance,
-                reason: `CLIP ${typeA}↔${typeB} (sim=${sim.toFixed(3)}${sameType ? '' : ', cross'}${reasonExtra})`,
-                aTime,
-                bTime,
-                hitCount,
+                distance: Math.round((1 - sim) * 1000) / 1000,
+                reason: `CLIP ${typeA}↔${typeB} (sim=${sim.toFixed(3)}${typeA === typeB ? '' : ', cross'})`,
+                aTime: null,
+                bTime: null,
+                hitCount: 1,
                 similarity: sim
             });
         }
     }
 
-    const noEmb = items.filter((m) => !m.embedding || !m.embedding.length);
-    if (noEmb.length >= 2) {
-        const imgStrict = Math.min(8, Math.max(threshold + 1, 5));
-        for (let i = 0; i < noEmb.length; i++) {
-            for (let j = i + 1; j < noEmb.length; j++) {
-                const a = noEmb[i];
-                const b = noEmb[j];
-                if (sameTypeOnly && normalizeType(a.media_type) !== normalizeType(b.media_type)) continue;
-                const key = `${Math.min(a.id, b.id)}:${Math.max(a.id, b.id)}`;
-                if (skips.has(key)) continue;
-
-                const typeA = normalizeType(a.media_type);
-                const typeB = normalizeType(b.media_type);
-                const motionPair = isMotion(typeA) || isMotion(typeB);
-
-                if (motionPair && a.frames.length && b.frames.length) {
-                    const { hits, bestDist, aTime, bTime } = countFrameHits(
-                        a.frames, b.frames, frameHamming
-                    );
-                    const bothMot = isMotion(typeA) && isMotion(typeB);
-                    const mixed = bothMot && typeA !== typeB;
-                    let minHits;
-                    if (typeA === 'gif' && typeB === 'gif') {
-                        minHits = minGifHits;
-                    } else if (mixed) {
-                        minHits = minGifVideoHits;
-                    } else if (bothMot) {
-                        minHits = minVideoHits;
-                    } else {
-                        minHits = minImageVideoHits;
-                    }
-                    if (hits < minHits) continue;
-                    pairs.push({
-                        a, b,
-                        distance: bestDist,
-                        reason: `dHash frames ${typeA}↔${typeB} (hits=${hits}, d=${bestDist})`,
-                        aTime,
-                        bTime,
-                        hitCount: hits
-                    });
-                } else {
-                    if (!a.phash || !b.phash) continue;
-                    if (isLowInfoHash(a.phash) || isLowInfoHash(b.phash)) continue;
-                    const dist = hammingDistance(a.phash, b.phash);
-                    if (dist > imgStrict) continue;
-                    pairs.push({
-                        a, b,
-                        distance: dist,
-                        reason: `dHash fallback (d=${dist})`,
-                        aTime: null,
-                        bTime: null,
-                        hitCount: 1
-                    });
-                }
-            }
-        }
-    }
-
-    pairs.sort((x, y) => {
-        const sx = x.similarity != null ? x.similarity : (1 - x.distance / 64);
-        const sy = y.similarity != null ? y.similarity : (1 - y.distance / 64);
-        return sy - sx;
-    });
+    pairs.sort((x, y) => (y.similarity || 0) - (x.similarity || 0));
     return pairs;
+}
+
+export function findPairsForSingleMedia(dbBid, mediaId) {
+    const dbEntry = userDbs.get(dbBid);
+    if (!dbEntry) return [];
+    ensurePhashSchema(dbEntry.main);
+
+    const cosineTh = scanOpts.cosineThreshold || DEFAULT_COSINE_THRESHOLD;
+    const crossTh = scanOpts.crossTypeCosine || DEFAULT_CROSS_TYPE_COSINE;
+    const sameTypeOnly = !!scanOpts.sameTypeOnly;
+
+    const skips = new Set();
+    try {
+        const skipStmt = dbEntry.main.prepare(`SELECT a_id, b_id FROM duplicate_skips`);
+        while (skipStmt.step()) {
+            const [a, b] = skipStmt.get();
+            skips.add(`${Math.min(a, b)}:${Math.max(a, b)}`);
+        }
+        skipStmt.free();
+    } catch (_) {}
+
+    let target = null;
+    const others = [];
+    const stmt = dbEntry.main.prepare(`
+        SELECT id, file_hash, media_type, width, height, duration, file_size,
+               original_name, display_name, created_at, phash, embedding
+        FROM media
+        WHERE embedding IS NOT NULL AND embedding != ''
+    `);
+    while (stmt.step()) {
+        const r = stmt.get();
+        const emb = embeddingFromBase64(r[11]);
+        if (!emb || !emb.length) continue;
+        const row = {
+            id: r[0], file_hash: r[1], media_type: r[2] || 'unknown',
+            width: r[3], height: r[4], duration: r[5], file_size: r[6],
+            original_name: r[7], display_name: r[8], created_at: r[9],
+            phash: r[10], embedding: emb
+        };
+        if (row.id === mediaId) target = row;
+        else others.push(row);
+    }
+    stmt.free();
+    if (!target) return [];
+
+    const typeA = target.media_type || 'unknown';
+    const pairs = [];
+    for (const b of others) {
+        const typeB = b.media_type || 'unknown';
+        if (sameTypeOnly && typeA !== typeB) continue;
+        const lo = Math.min(target.id, b.id);
+        const hi = Math.max(target.id, b.id);
+        if (skips.has(`${lo}:${hi}`)) continue;
+        const needed = typeA === typeB ? cosineTh : crossTh;
+        const sim = cosineSimilarity(target.embedding, b.embedding);
+        if (sim < needed) continue;
+        pairs.push({
+            a: target.id < b.id ? target : b,
+            b: target.id < b.id ? b : target,
+            distance: Math.round((1 - sim) * 1000) / 1000,
+            reason: `CLIP ${typeA}↔${typeB} (sim=${sim.toFixed(3)})`,
+            aTime: null,
+            bTime: null,
+            hitCount: 1,
+            similarity: sim
+        });
+    }
+    return pairs;
+}
+
+export function savePairsToDb(dbBid, pairs) {
+    const dbEntry = userDbs.get(dbBid);
+    if (!dbEntry || !dbEntry.main) return 0;
+    ensurePhashSchema(dbEntry.main);
+    const main = dbEntry.main;
+    try { main.run(`BEGIN`); } catch (_) {}
+    try {
+        main.run(`DELETE FROM duplicate_pairs`);
+        const now = Date.now();
+        let n = 0;
+        for (const p of pairs || []) {
+            if (!p || !p.a || !p.b) continue;
+            const lo = Math.min(p.a.id, p.b.id);
+            const hi = Math.max(p.a.id, p.b.id);
+            main.run(
+                `INSERT OR REPLACE INTO duplicate_pairs
+                 (a_id, b_id, similarity, distance, reason, a_time, b_time, hit_count, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                    lo, hi,
+                    p.similarity != null ? p.similarity : null,
+                    p.distance != null ? p.distance : null,
+                    p.reason || null, null, null,
+                    p.hitCount || 1, now
+                ]
+            );
+            n++;
+        }
+        try { main.run(`COMMIT`); } catch (_) {}
+        saveUserDatabases(dbBid);
+        return n;
+    } catch (err) {
+        try { main.run(`ROLLBACK`); } catch (_) {}
+        throw err;
+    }
+}
+
+export function loadPairsFromDb(dbBid, opts = {}) {
+    const dbEntry = userDbs.get(dbBid);
+    if (!dbEntry || !dbEntry.main) return [];
+    ensurePhashSchema(dbEntry.main);
+    const main = dbEntry.main;
+
+    const minSim = opts.minSimilarity != null ? parseFloat(opts.minSimilarity) : null;
+    const sameTypeOnly = !!opts.sameTypeOnly;
+
+    const skips = new Set();
+    try {
+        const skipStmt = main.prepare(`SELECT a_id, b_id FROM duplicate_skips`);
+        while (skipStmt.step()) {
+            const [a, b] = skipStmt.get();
+            skips.add(`${Math.min(a, b)}:${Math.max(a, b)}`);
+        }
+        skipStmt.free();
+    } catch (_) {}
+
+    const media = new Map();
+    const mStmt = main.prepare(`
+        SELECT id, file_hash, media_type, width, height, duration, file_size,
+               original_name, display_name, created_at, phash
+        FROM media
+    `);
+    while (mStmt.step()) {
+        const r = mStmt.get();
+        media.set(r[0], {
+            id: r[0], file_hash: r[1], media_type: r[2], width: r[3], height: r[4],
+            duration: r[5], file_size: r[6], original_name: r[7], display_name: r[8],
+            created_at: r[9], phash: r[10]
+        });
+    }
+    mStmt.free();
+
+    const pairs = [];
+    const pStmt = main.prepare(`
+        SELECT a_id, b_id, similarity, distance, reason, a_time, b_time, hit_count
+        FROM duplicate_pairs
+        ORDER BY COALESCE(similarity, 0) DESC
+    `);
+    while (pStmt.step()) {
+        const [aId, bId, sim, dist, reason, aTime, bTime, hitCount] = pStmt.get();
+        const key = `${Math.min(aId, bId)}:${Math.max(aId, bId)}`;
+        if (skips.has(key)) continue;
+        const a = media.get(aId);
+        const b = media.get(bId);
+        if (!a || !b) continue;
+        if (sameTypeOnly && (a.media_type || '') !== (b.media_type || '')) continue;
+        if (minSim != null && Number.isFinite(minSim) && sim != null && sim + 1e-9 < minSim) continue;
+        pairs.push({
+            a, b,
+            similarity: sim,
+            distance: dist != null ? dist : (sim != null ? Math.round((1 - sim) * 1000) / 1000 : null),
+            reason: reason || '',
+            aTime, bTime,
+            hitCount: hitCount || 1
+        });
+    }
+    pStmt.free();
+    return pairs;
+}
+
+export function removePairsForMedia(dbBid, mediaId) {
+    const dbEntry = userDbs.get(dbBid);
+    if (!dbEntry || !dbEntry.main) return;
+    try {
+        dbEntry.main.run(`DELETE FROM duplicate_pairs WHERE a_id = ? OR b_id = ?`, [mediaId, mediaId]);
+    } catch (_) {}
+}
+
+export function updatePairsForMedia(dbBid, mediaId) {
+    const dbEntry = userDbs.get(dbBid);
+    if (!dbEntry || !dbEntry.main) return 0;
+    ensurePhashSchema(dbEntry.main);
+    removePairsForMedia(dbBid, mediaId);
+
+    const related = findPairsForSingleMedia(dbBid, mediaId);
+    const now = Date.now();
+    let n = 0;
+    for (const p of related) {
+        const lo = Math.min(p.a.id, p.b.id);
+        const hi = Math.max(p.a.id, p.b.id);
+        dbEntry.main.run(
+            `INSERT OR REPLACE INTO duplicate_pairs
+             (a_id, b_id, similarity, distance, reason, a_time, b_time, hit_count, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                lo, hi,
+                p.similarity != null ? p.similarity : null,
+                p.distance != null ? p.distance : null,
+                p.reason || null,
+                null, null,
+                p.hitCount || 1, now
+            ]
+        );
+        n++;
+    }
+    if (n) saveUserDatabases(dbBid);
+    return n;
 }
 
 export function startScan(dbBid, opts = {}) {
@@ -543,14 +670,16 @@ export function startScan(dbBid, opts = {}) {
         minImageVideoHits: Math.min(10, Math.max(1, parseInt(opts.minImageVideoHits, 10) || DEFAULT_MIN_IMAGE_VIDEO_HITS)),
         minGifHits: Math.min(10, Math.max(1, parseInt(opts.minGifHits, 10) || DEFAULT_MIN_GIF_HITS)),
         minGifVideoHits: Math.min(10, Math.max(1, parseInt(opts.minGifVideoHits, 10) || DEFAULT_MIN_GIF_VIDEO_HITS)),
-        cosineThreshold: Math.min(0.999, Math.max(0.7,
+        cosineThreshold: Math.min(0.999, Math.max(0.05,
             parseFloat(opts.cosineThreshold) || DEFAULT_COSINE_THRESHOLD
         )),
-        crossTypeCosine: Math.min(0.999, Math.max(0.7,
+        crossTypeCosine: Math.min(0.999, Math.max(0.05,
             parseFloat(opts.crossTypeCosine) || DEFAULT_CROSS_TYPE_COSINE
         )),
         sameTypeOnly: opts.sameTypeOnly === true || opts.sameTypeOnly === 'true' || opts.sameTypeOnly === 1
     };
+
+    const forceAll = opts.forceAll === true || opts.forceAll === 'true' || opts.forceAll === 1;
 
     preloadEmbedModel().catch((err) => {
         logger.error(`CLIP preload: ${err.message}`);
@@ -558,9 +687,9 @@ export function startScan(dbBid, opts = {}) {
 
     const job = {
         status: 'running',
-        phase: 'clearing',
+        phase: 'hashing',
         progress: 0,
-        message: 'Clearing previous hash data…',
+        message: 'hashing',
         pairs: [],
         pairIndex: 0,
         total: 0,
@@ -572,30 +701,44 @@ export function startScan(dbBid, opts = {}) {
 
     (async () => {
         try {
-            clearPhashData(dbBid);
+            if (forceAll) {
+                job.phase = 'clearing';
+                job.message = 'clearing';
+                clearPhashData(dbBid);
+            }
             job.phase = 'hashing';
-            job.message = 'Computing perceptual hashes…';
+            job.message = 'hashing';
             job.progress = 2;
+            job.processed = 0;
+            job.total = 0;
 
             await backfillPhashes(dbBid, (done, total) => {
                 job.processed = done;
                 job.total = total;
                 job.progress = total ? 2 + Math.round((done / total) * 78) : 80;
-                job.message = `Hashing ${done}/${total}`;
-            }, true);
+                job.message = 'hashing';
+            }, forceAll);
 
             job.phase = 'matching';
-            job.message = 'Matching near-duplicates…';
+            job.message = 'matching';
             job.progress = 90;
             const pairs = findDuplicatePairs(dbBid, scanOpts.threshold);
+            const saved = savePairsToDb(dbBid, pairs);
             job.pairs = pairs;
             job.pairIndex = 0;
             job.progress = 100;
             job.phase = 'done';
             job.status = 'done';
-            job.message = pairs.length
-                ? `Found ${pairs.length} candidate pair(s). Click “Review duplicates”.`
-                : 'No near-duplicates found';
+            let dbCount = saved;
+            try {
+                const dbEntry = userDbs.get(dbBid);
+                if (dbEntry && dbEntry.main) {
+                    const s = dbEntry.main.prepare(`SELECT COUNT(*) FROM duplicate_pairs`);
+                    if (s.step()) dbCount = s.get()[0] || 0;
+                    s.free();
+                }
+            } catch (_) {}
+            job.message = dbCount ? `found ${dbCount}` : 'none';
         } catch (err) {
             logger.error(`duplicate scan error: ${err.message}`);
             job.status = 'error';
@@ -606,72 +749,155 @@ export function startScan(dbBid, opts = {}) {
     return job;
 }
 
+export async function embedSingleMedia(dbBid, mediaId) {
+    const dbEntry = userDbs.get(dbBid);
+    if (!dbEntry || !dbEntry.main) return false;
+    ensurePhashSchema(dbEntry.main);
+    const stmt = dbEntry.main.prepare(`
+        SELECT id, file_hash, container_name, media_type, file_size, media_offset,
+               encryption_iv, original_name, duration, phash_status, embedding
+        FROM media WHERE id = ?
+    `);
+    stmt.bind([mediaId]);
+    if (!stmt.step()) {
+        stmt.free();
+        return false;
+    }
+    const r = stmt.get();
+    stmt.free();
+    const row = {
+        id: r[0], file_hash: r[1], container_name: r[2], media_type: r[3],
+        file_size: r[4], media_offset: r[5], encryption_iv: r[6],
+        original_name: r[7], duration: r[8], phash_status: r[9]
+    };
+    const existingEmb = r[10];
+    if (existingEmb && String(existingEmb).length > 16 && row.phash_status === 'done') {
+        return true;
+    }
+    try {
+        const result = await computeMediaPhash(dbEntry, row);
+        await persistPhashResult(dbEntry, result);
+        saveUserDatabases(dbBid);
+        try {
+            const n = updatePairsForMedia(dbBid, mediaId);
+            if (n > 0) logger.info(`dup pairs +${n} for media ${mediaId}`);
+        } catch (e) {
+            logger.warn(`updatePairsForMedia ${mediaId}: ${e.message}`);
+        }
+        return true;
+    } catch (err) {
+        logger.warn(`embedSingleMedia ${mediaId}: ${err.message}`);
+        return false;
+    }
+}
+
 export function startReview(dbBid, opts = {}) {
     const existing = scanJobs.get(dbBid);
     if (existing && existing.status === 'running') {
-        throw new Error('Scan still running');
+        const age = Date.now() - (existing.startedAt || 0);
+        if (age < 120000) {
+            throw new Error('Scan still running');
+        }
+        existing.status = 'error';
+        existing.message = 'Scan interrupted';
     }
 
-    if (opts.threshold != null || opts.minVideoHits != null || opts.minImageVideoHits != null
-        || opts.minGifHits != null || opts.minGifVideoHits != null
-        || opts.cosineThreshold != null || opts.crossTypeCosine != null || opts.sameTypeOnly != null) {
-        scanOpts = {
-            ...scanOpts,
-            threshold: opts.threshold != null
-                ? Math.min(16, Math.max(1, parseInt(opts.threshold, 10) || scanOpts.threshold))
-                : scanOpts.threshold,
-            minVideoHits: opts.minVideoHits != null
-                ? Math.min(20, Math.max(1, parseInt(opts.minVideoHits, 10) || scanOpts.minVideoHits))
-                : scanOpts.minVideoHits,
-            minImageVideoHits: opts.minImageVideoHits != null
-                ? Math.min(10, Math.max(1, parseInt(opts.minImageVideoHits, 10) || scanOpts.minImageVideoHits))
-                : scanOpts.minImageVideoHits,
-            minGifHits: opts.minGifHits != null
-                ? Math.min(10, Math.max(1, parseInt(opts.minGifHits, 10) || scanOpts.minGifHits))
-                : scanOpts.minGifHits,
-            minGifVideoHits: opts.minGifVideoHits != null
-                ? Math.min(10, Math.max(1, parseInt(opts.minGifVideoHits, 10) || scanOpts.minGifVideoHits))
-                : scanOpts.minGifVideoHits,
-            cosineThreshold: opts.cosineThreshold != null
-                ? Math.min(0.999, Math.max(0.7, parseFloat(opts.cosineThreshold) || scanOpts.cosineThreshold))
-                : scanOpts.cosineThreshold,
-            crossTypeCosine: opts.crossTypeCosine != null
-                ? Math.min(0.999, Math.max(0.7, parseFloat(opts.crossTypeCosine) || scanOpts.crossTypeCosine))
-                : scanOpts.crossTypeCosine,
-            sameTypeOnly: opts.sameTypeOnly != null
-                ? (opts.sameTypeOnly === true || opts.sameTypeOnly === 'true' || opts.sameTypeOnly === 1)
-                : scanOpts.sameTypeOnly
-        };
-    }
+    const parseCos = (v, fallback) => {
+        const n = parseFloat(v);
+        if (!Number.isFinite(n)) return fallback;
+        return Math.min(0.999, Math.max(0.05, n));
+    };
 
-    if (existing && existing.pairs && existing.pairs.length && existing.status === 'done') {
-        existing.pairIndex = 0;
-        existing.status = 'review';
-        existing.phase = 'review';
-        existing.message = `Reviewing ${existing.pairs.length} pair(s)`;
-        return existing;
-    }
+    scanOpts = {
+        ...scanOpts,
+        threshold: opts.threshold != null
+            ? Math.min(16, Math.max(1, parseInt(opts.threshold, 10) || scanOpts.threshold))
+            : scanOpts.threshold,
+        minVideoHits: opts.minVideoHits != null
+            ? Math.min(20, Math.max(1, parseInt(opts.minVideoHits, 10) || scanOpts.minVideoHits))
+            : scanOpts.minVideoHits,
+        minImageVideoHits: opts.minImageVideoHits != null
+            ? Math.min(10, Math.max(1, parseInt(opts.minImageVideoHits, 10) || scanOpts.minImageVideoHits))
+            : scanOpts.minImageVideoHits,
+        minGifHits: opts.minGifHits != null
+            ? Math.min(10, Math.max(1, parseInt(opts.minGifHits, 10) || scanOpts.minGifHits))
+            : scanOpts.minGifHits,
+        minGifVideoHits: opts.minGifVideoHits != null
+            ? Math.min(10, Math.max(1, parseInt(opts.minGifVideoHits, 10) || scanOpts.minGifVideoHits))
+            : scanOpts.minGifVideoHits,
+        cosineThreshold: opts.cosineThreshold != null
+            ? parseCos(opts.cosineThreshold, scanOpts.cosineThreshold)
+            : scanOpts.cosineThreshold,
+        crossTypeCosine: opts.crossTypeCosine != null
+            ? parseCos(opts.crossTypeCosine, scanOpts.crossTypeCosine)
+            : scanOpts.crossTypeCosine,
+        sameTypeOnly: opts.sameTypeOnly != null
+            ? (opts.sameTypeOnly === true || opts.sameTypeOnly === 'true' || opts.sameTypeOnly === 1)
+            : scanOpts.sameTypeOnly
+    };
 
-    const pairs = findDuplicatePairs(dbBid, scanOpts.threshold);
+    const forceRecompute = opts.forceRecompute === true || opts.forceRecompute === 'true' || opts.forceRecompute === 1;
+
     const job = {
-        status: pairs.length ? 'review' : 'done',
-        phase: 'review',
-        progress: 100,
-        message: pairs.length ? `Reviewing ${pairs.length} pair(s)` : 'No near-duplicates found',
-        pairs,
+        status: 'running',
+        phase: forceRecompute ? 'matching' : 'loading',
+        progress: 5,
+        message: forceRecompute ? 'Matching…' : 'Loading pairs…',
+        pairs: [],
         pairIndex: 0,
         total: 0,
         processed: 0,
         startedAt: Date.now(),
-        threshold: scanOpts.threshold
+        threshold: scanOpts.threshold,
+        cosineThreshold: scanOpts.cosineThreshold,
+        crossTypeCosine: scanOpts.crossTypeCosine
     };
     scanJobs.set(dbBid, job);
+
+    setImmediate(() => {
+        try {
+            let pairs;
+            if (forceRecompute) {
+                pairs = findDuplicatePairs(dbBid, scanOpts.threshold);
+                savePairsToDb(dbBid, pairs);
+            } else {
+                pairs = loadPairsFromDb(dbBid, {
+                    minSimilarity: scanOpts.cosineThreshold,
+                    sameTypeOnly: scanOpts.sameTypeOnly
+                });
+            }
+            job.pairs = pairs;
+            job.pairIndex = 0;
+            job.progress = 100;
+            job.phase = 'review';
+            job.status = pairs.length ? 'review' : 'done';
+            job.message = pairs.length
+                ? `Reviewing ${pairs.length} pair(s) · CLIP≥${scanOpts.cosineThreshold}`
+                : `No pairs · CLIP≥${scanOpts.cosineThreshold}`;
+        } catch (err) {
+            job.status = 'error';
+            job.phase = 'error';
+            job.message = err.message || String(err);
+        }
+    });
+
     return job;
 }
 
 export function getScanStatus(dbBid) {
     const job = scanJobs.get(dbBid);
-    if (!job) return { status: 'idle', progress: 0, message: '', pairCount: 0 };
+    if (!job) {
+        let pairCount = 0;
+        try {
+            const dbEntry = userDbs.get(dbBid);
+            if (dbEntry && dbEntry.main) {
+                const s = dbEntry.main.prepare(`SELECT COUNT(*) FROM duplicate_pairs`);
+                if (s.step()) pairCount = s.get()[0] || 0;
+                s.free();
+            }
+        } catch (_) {}
+        return { status: 'idle', progress: 0, message: '', pairCount };
+    }
     return {
         status: job.status,
         phase: job.phase,
@@ -691,33 +917,49 @@ export function getCurrentPair(dbBid) {
     return job.pairs[job.pairIndex];
 }
 
-export function resolvePair(dbBid, action, deleteIds = []) {
-    const job = scanJobs.get(dbBid);
-    if (!job) throw new Error('No active scan');
-    const pair = job.pairs[job.pairIndex];
-    if (!pair) throw new Error('No current pair');
-
+export function resolvePair(dbBid, action, deleteIds = [], pairRef = null) {
     const dbEntry = userDbs.get(dbBid);
     if (!dbEntry) throw new Error('DB not loaded');
 
+    let aId = pairRef && pairRef.aId != null ? parseInt(pairRef.aId, 10) : null;
+    let bId = pairRef && pairRef.bId != null ? parseInt(pairRef.bId, 10) : null;
+
+    const job = scanJobs.get(dbBid);
+    if ((aId == null || bId == null) && job && job.pairs && job.pairs[job.pairIndex]) {
+        const pair = job.pairs[job.pairIndex];
+        aId = pair.a.id;
+        bId = pair.b.id;
+    }
+    if (aId == null || bId == null) throw new Error('No current pair');
+
+    const lo = Math.min(aId, bId);
+    const hi = Math.max(aId, bId);
+
     if (action === 'skip') {
-        const lo = Math.min(pair.a.id, pair.b.id);
-        const hi = Math.max(pair.a.id, pair.b.id);
         dbEntry.main.run(
             `INSERT OR REPLACE INTO duplicate_skips (a_id, b_id, skipped_at) VALUES (?, ?, ?)`,
             [lo, hi, Date.now()]
         );
+        try {
+            dbEntry.main.run(`DELETE FROM duplicate_pairs WHERE a_id = ? AND b_id = ?`, [lo, hi]);
+        } catch (_) {}
         saveUserDatabases(dbBid);
-    } else if (action === 'delete') {
     }
 
-    job.pairIndex += 1;
-    if (job.pairIndex >= job.pairs.length) {
-        job.status = 'done';
-        job.message = 'Review finished';
-        return { done: true, next: null };
+    if (job && Array.isArray(job.pairs)) {
+        const idx = job.pairs.findIndex(
+            (p) => p && p.a && p.b && Math.min(p.a.id, p.b.id) === lo && Math.max(p.a.id, p.b.id) === hi
+        );
+        if (idx >= 0) job.pairs.splice(idx, 1);
+        if (job.pairIndex >= job.pairs.length) job.pairIndex = Math.max(0, job.pairs.length - 1);
+        if (!job.pairs.length) {
+            job.status = 'done';
+            job.message = 'Review finished';
+            return { done: true, next: null };
+        }
+        return { done: false, next: job.pairs[Math.min(job.pairIndex, job.pairs.length - 1)] || null };
     }
-    return { done: false, next: job.pairs[job.pairIndex] };
+    return { done: true, next: null };
 }
 
 export function deleteMediaById(dbBid, mediaId) {
@@ -743,6 +985,7 @@ export function deleteMediaById(dbBid, mediaId) {
     tags.run(`DELETE FROM media_tags WHERE media_id = ?`, [mediaId]);
     previews.run(`DELETE FROM previews WHERE media_id = ?`, [mediaId]);
     main.run(`DELETE FROM duplicate_skips WHERE a_id = ? OR b_id = ?`, [mediaId, mediaId]);
+    try { main.run(`DELETE FROM duplicate_pairs WHERE a_id = ? OR b_id = ?`, [mediaId, mediaId]); } catch (_) {}
 
     try {
         const p = path.join(mediaDir, containerName);

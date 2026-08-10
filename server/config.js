@@ -36,18 +36,60 @@ export const SYSTEM_DB_PATH = path.join(DB_BASE, 'system.db');
 export const USERS_DIR = path.join(DB_BASE, 'users');
 export const MEDIA_BASE = path.join(ROOT_DIR, 'media');
 export const TEMP_DIR = path.join(ROOT_DIR, 'temp');
+export const CLIP_CACHE_DIR = path.join(ROOT_DIR, 'models', 'clip');
 
-[DB_BASE, USERS_DIR, MEDIA_BASE, TEMP_DIR].forEach(dir => {
+[DB_BASE, USERS_DIR, MEDIA_BASE, TEMP_DIR, CLIP_CACHE_DIR].forEach(dir => {
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
 
 export const CONFIG_PATH = path.join(DB_BASE, 'config.json');
+
+export const CLIP_PRESETS = {
+    small: 'Xenova/clip-vit-base-patch32',
+    base16: 'Xenova/clip-vit-base-patch16',
+    large: 'Xenova/clip-vit-large-patch14'
+};
+
 export const defaultAccessConfig = {
     port: parseInt(process.env.PORT, 10) || 3001,
     localhostOnly: false,
     registrationDisabled: false,
-    language: DEFAULT_LANG || 'en'
+    language: DEFAULT_LANG || 'en',
+    clipModel: 'small',
+    clipQuantized: true,
+    clipSearchMin: 0.23,
+    clipSimilarMin: 0.70
 };
+
+export function clampClipSearchMin(v) {
+    const n = parseFloat(v);
+    if (!Number.isFinite(n)) return defaultAccessConfig.clipSearchMin;
+    return Math.min(0.6, Math.max(0.1, n));
+}
+
+export function clampClipSimilarMin(v) {
+    const n = parseFloat(v);
+    if (!Number.isFinite(n)) return defaultAccessConfig.clipSimilarMin;
+    return Math.min(0.99, Math.max(0.5, n));
+}
+
+export function normalizeClipModel(key) {
+    if (key && CLIP_PRESETS[key]) return key;
+    return 'small';
+}
+
+export function getClipModelId(cfg = accessConfig) {
+    if (process.env.CLIP_MODEL) return process.env.CLIP_MODEL;
+    const key = normalizeClipModel(cfg && cfg.clipModel);
+    return CLIP_PRESETS[key] || CLIP_PRESETS.small;
+}
+
+export function getClipQuantized(cfg = accessConfig) {
+    if (process.env.CLIP_QUANTIZED === '0') return false;
+    if (process.env.CLIP_QUANTIZED === '1') return true;
+    if (cfg && cfg.clipQuantized === false) return false;
+    return true;
+}
 
 export function loadAccessConfig() {
     try {
@@ -58,7 +100,11 @@ export function loadAccessConfig() {
                 port: Number.isInteger(raw.port) && raw.port >= 1 && raw.port <= 65535 ? raw.port : defaultAccessConfig.port,
                 localhostOnly: !!raw.localhostOnly,
                 registrationDisabled: !!raw.registrationDisabled,
-                language: lang
+                language: lang,
+                clipModel: normalizeClipModel(raw.clipModel),
+                clipQuantized: raw.clipQuantized === false ? false : true,
+                clipSearchMin: clampClipSearchMin(raw.clipSearchMin),
+                clipSimilarMin: clampClipSimilarMin(raw.clipSimilarMin)
             };
         }
     } catch (err) {

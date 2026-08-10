@@ -2,15 +2,33 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { spawn } from 'child_process';
-import { logger } from '../config.js';
-
-const MODEL_ID = process.env.CLIP_MODEL || 'Xenova/clip-vit-base-patch32';
-
-const QUANTIZED = process.env.CLIP_QUANTIZED !== '0';
+import { logger, getClipModelId, getClipQuantized } from '../config.js';
 
 let visionModel = null;
+let textModel = null;
+let tokenizer = null;
 let processor = null;
 let loadPromise = null;
+let loadedModelId = null;
+let loadedQuantized = null;
+
+export function getLoadedClipInfo() {
+    return {
+        modelId: loadedModelId || getClipModelId(),
+        quantized: loadedQuantized === null ? getClipQuantized() : loadedQuantized,
+        ready: !!(visionModel && processor)
+    };
+}
+
+export function unloadClipModel() {
+    visionModel = null;
+    textModel = null;
+    tokenizer = null;
+    processor = null;
+    loadPromise = null;
+    loadedModelId = null;
+    loadedQuantized = null;
+}
 
 export function cosineSimilarity(a, b) {
     if (!a || !b || a.length !== b.length) return 0;
@@ -67,29 +85,44 @@ export function averageEmbeddings(list) {
 }
 
 async function ensureModel() {
-    if (visionModel && processor) return;
+    const modelId = getClipModelId();
+    const quantized = getClipQuantized();
+    if (visionModel && processor && loadedModelId === modelId && loadedQuantized === quantized) return;
     if (loadPromise) return loadPromise;
+    if (visionModel || processor) unloadClipModel();
     loadPromise = (async () => {
-        logger.info(`Loading CLIP model ${MODEL_ID} (quantized=${QUANTIZED})…`);
+        logger.info(`Loading CLIP model ${modelId} (quantized=${quantized})…`);
         const {
             AutoProcessor,
+            AutoTokenizer,
             CLIPVisionModelWithProjection,
+            CLIPTextModelWithProjection,
             env
         } = await import('@xenova/transformers');
 
         env.allowLocalModels = true;
         env.useBrowserCache = false;
+        const { CLIP_CACHE_DIR } = await import('../config.js');
+        env.cacheDir = process.env.TRANSFORMERS_CACHE || CLIP_CACHE_DIR;
 
-        processor = await AutoProcessor.from_pretrained(MODEL_ID);
-        visionModel = await CLIPVisionModelWithProjection.from_pretrained(MODEL_ID, {
-            quantized: QUANTIZED
+        processor = await AutoProcessor.from_pretrained(modelId);
+        tokenizer = await AutoTokenizer.from_pretrained(modelId);
+        visionModel = await CLIPVisionModelWithProjection.from_pretrained(modelId, {
+            quantized
         });
+        textModel = await CLIPTextModelWithProjection.from_pretrained(modelId, {
+            quantized
+        });
+        loadedModelId = modelId;
+        loadedQuantized = quantized;
         logger.info('CLIP model ready');
     })();
     try {
         await loadPromise;
     } catch (err) {
         loadPromise = null;
+        loadedModelId = null;
+        loadedQuantized = null;
         throw err;
     }
 }
@@ -131,57 +164,104 @@ function runFfmpeg(args, stdinBuf = null, timeoutMs = 120000) {
     });
 }
 
+function writeTempInput(mediaBuf, ext = 'bin') {
+    const p = path.join(os.tmpdir(), `clip-in-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`);
+    fs.writeFileSync(p, mediaBuf);
+    return p;
+}
+
 async function bufferToTempJpeg(mediaBuf, label = 'img') {
     const tmp = path.join(os.tmpdir(), `clip-${label}-${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`);
-    const args = [
-        '-hide_banner', '-loglevel', 'error',
-        '-i', 'pipe:0',
-        '-frames:v', '1',
-        '-q:v', '2',
-        '-y', tmp
-    ];
-    await runFfmpeg(args, mediaBuf, 60000);
-    return tmp;
+    const src = writeTempInput(mediaBuf);
+    try {
+        try {
+            await runFfmpeg([
+                '-hide_banner', '-loglevel', 'error',
+                '-y',
+                '-i', src,
+                '-an',
+                '-frames:v', '1',
+                '-vf', 'scale=512:-2',
+                '-q:v', '2',
+                tmp
+            ], null, 60000);
+        } catch (_) {
+            await runFfmpeg([
+                '-hide_banner', '-loglevel', 'error',
+                '-y',
+                '-i', src,
+                '-an',
+                '-frames:v', '1',
+                '-q:v', '2',
+                tmp
+            ], null, 60000);
+        }
+        return tmp;
+    } finally {
+        try { fs.unlinkSync(src); } catch (_) {}
+    }
 }
 
 async function videoBufferToTempJpegs(mediaBuf, count = 6, duration = 0) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'clip-vid-'));
-    const pattern = path.join(dir, 'f_%03d.jpg');
+    const src = writeTempInput(mediaBuf);
+    const n = Math.max(1, Math.min(count || 6, 12));
+    const files = [];
 
-    let fps = 1;
-    if (duration > 0 && duration < 30) {
-        fps = Math.min(4, Math.max(0.5, count / Math.max(duration, 0.5)));
-    } else if (duration > 0) {
-        fps = count / duration;
-    }
-    const args = [
-        '-hide_banner', '-loglevel', 'error',
-        '-i', 'pipe:0',
-        '-vf', `fps=${fps},scale='min(512,iw)':-2`,
-        '-frames:v', String(count),
-        '-q:v', '3',
-        '-y', pattern
-    ];
     try {
-        await runFfmpeg(args, mediaBuf, 300000);
-    } catch (err) {
-        logger.warn(`video frame extract failed: ${err.message}`);
+        const times = [];
+        if (duration > 0.5) {
+            for (let i = 0; i < n; i++) {
+                const t = ((i + 0.5) / n) * duration;
+                times.push(Math.max(0, Math.min(duration - 0.05, t)));
+            }
+        } else {
+            times.push(0);
+        }
 
-        try {
-            const one = path.join(dir, 'f_001.jpg');
-            await runFfmpeg([
+        for (let i = 0; i < times.length; i++) {
+            const out = path.join(dir, `frame-${i + 1}.jpg`);
+            const t = times[i];
+            const args = [
                 '-hide_banner', '-loglevel', 'error',
-                '-i', 'pipe:0',
+                '-y',
+                '-ss', String(Math.max(0, t)),
+                '-i', src,
+                '-an',
                 '-frames:v', '1',
+                '-vf', 'scale=512:-2',
                 '-q:v', '3',
-                '-y', one
-            ], mediaBuf, 60000);
-        } catch (_) {}
+                out
+            ];
+            try {
+                await runFfmpeg(args, null, 90000);
+                if (fs.existsSync(out) && fs.statSync(out).size > 32) {
+                    files.push(out);
+                }
+            } catch (err) {
+                if (i === 0) {
+                    try {
+                        await runFfmpeg([
+                            '-hide_banner', '-loglevel', 'error',
+                            '-y',
+                            '-i', src,
+                            '-an',
+                            '-frames:v', '1',
+                            '-q:v', '3',
+                            out
+                        ], null, 90000);
+                        if (fs.existsSync(out) && fs.statSync(out).size > 32) {
+                            files.push(out);
+                        }
+                    } catch (err2) {
+                        logger.warn(`video frame extract failed: ${err2.message}`);
+                    }
+                }
+            }
+        }
+    } finally {
+        try { fs.unlinkSync(src); } catch (_) {}
     }
-    const files = fs.readdirSync(dir)
-        .filter((f) => f.endsWith('.jpg'))
-        .map((f) => path.join(dir, f))
-        .sort();
     return { dir, files };
 }
 
@@ -245,6 +325,24 @@ export async function embedVideoBuffer(mediaBuf, opts = {}) {
                 fs.rmdirSync(dir);
             } catch (_) {}
         }
+    }
+}
+
+export async function embedText(text) {
+    const q = String(text || '').trim();
+    if (!q) return null;
+    try {
+        await ensureModel();
+        const inputs = tokenizer([q], { padding: true, truncation: true });
+        const { text_embeds } = await textModel(inputs);
+        const data = text_embeds.data;
+        const dim = text_embeds.dims ? text_embeds.dims[text_embeds.dims.length - 1] : 512;
+        const src = data instanceof Float32Array ? data : new Float32Array(data);
+        const vec = src.length === dim ? src : src.slice(0, dim);
+        return l2Normalize(vec);
+    } catch (err) {
+        logger.warn(`embedText: ${err.message}`);
+        return null;
     }
 }
 

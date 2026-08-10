@@ -3,7 +3,7 @@ import { getLanguage, t } from './user-locales.js';
 import { state, icons } from './state.js';
 import {
     escapeHtml, formatDate, formatFileSize, formatDuration, parseTagsToArray,
-    mergeFilterToken, toggleExcludeToken, isMetaFilterToken,
+    mergeFilterToken, toggleExcludeToken, isMetaFilterToken, orderFilterTokens,
     showLoading, hideLoading, showAlert, showConfirm, applyLanguage, updateAllTexts
 } from './utils.js';
 
@@ -372,7 +372,7 @@ export function updateActiveTagsDisplay() {
         clearAllTagsBtn?.classList.add('hidden');
         return;
     }
-    const tagsArray = parseTagsToArray(state.tags);
+    const tagsArray = orderFilterTokens(parseTagsToArray(state.tags));
     if (tagsArray.length === 0) {
         tagsContainer.innerHTML = '';
         clearAllTagsBtn?.classList.add('hidden');
@@ -492,51 +492,76 @@ export function updatePagination() {
 }
 
 export async function navigateViewer(direction) {
-    if (state.isNavigating) {
-        console.log('Navigation already in progress, ignoring');
-        return;
+    if (!viewer || viewer.classList.contains('hidden')) return;
+    if (state.isNavigating) return;
+
+    const dir = direction < 0 ? -1 : 1;
+    let list = Array.isArray(state.viewerPlaylist) && state.viewerPlaylist.length
+        ? state.viewerPlaylist
+        : (state.posts || []);
+    if (!list.length) {
+        list = state.posts || [];
     }
-    if (viewer.classList.contains('hidden')) return;
+    if (!list.length) return;
 
+    let idx = Number(state.viewerPlaylistIndex);
+    if (!Number.isFinite(idx)) idx = Number(state.currentPostIndex) || 0;
+
+    const curId = state.currentMediaId;
+    if (curId != null) {
+        const found = list.findIndex((p) => p && String(p.id) === String(curId));
+        if (found >= 0) idx = found;
+    }
+    idx = Math.max(0, Math.min(idx, list.length - 1));
+
+    const next = idx + dir;
     state.isNavigating = true;
-
     try {
-        const items = state.posts;
-        if (!items.length) return;
+        if (next >= 0 && next < list.length) {
+            const post = list[next];
+            state.viewerPlaylistIndex = next;
+            state.currentPostIndex = next;
+            state.currentMediaId = post.id;
+            await openViewer(post, { fromNav: true });
+            return;
+        }
 
-        let newIndex = state.currentPostIndex + direction;
-        if (newIndex < 0) {
-            if (state.page > 0) {
-                const ok = await loadMedia(state.page - 1);
-                if (ok && state.posts.length > 0) {
-                    state.currentPostIndex = state.posts.length - 1;
-                    state.currentMediaId = state.posts[state.currentPostIndex].id;
-                    await openViewer(state.posts[state.currentPostIndex]);
-                }
-            }
-        } else if (newIndex >= items.length) {
-            if (state.page < state.totalPages - 1) {
-                const ok = await loadMedia(state.page + 1);
-                if (ok && state.posts.length > 0) {
-                    state.currentPostIndex = 0;
-                    state.currentMediaId = state.posts[0].id;
-                    await openViewer(state.posts[0]);
-                }
-            }
-        } else {
-            state.currentPostIndex = newIndex;
-            state.currentMediaId = items[newIndex].id;
-            await openViewer(items[newIndex]);
+        if (dir < 0 && state.page > 0) {
+            const ok = await loadMedia(state.page - 1);
+            if (!ok || !(state.posts && state.posts.length)) return;
+            state.viewerPlaylist = state.posts.slice();
+            const i = state.viewerPlaylist.length - 1;
+            state.viewerPlaylistIndex = i;
+            state.currentPostIndex = i;
+            state.currentMediaId = state.viewerPlaylist[i].id;
+            await openViewer(state.viewerPlaylist[i], { fromNav: true });
+            return;
+        }
+
+        if (dir > 0 && state.page < (state.totalPages || 0) - 1) {
+            const ok = await loadMedia(state.page + 1);
+            if (!ok || !(state.posts && state.posts.length)) return;
+            state.viewerPlaylist = state.posts.slice();
+            state.viewerPlaylistIndex = 0;
+            state.currentPostIndex = 0;
+            state.currentMediaId = state.viewerPlaylist[0].id;
+            await openViewer(state.viewerPlaylist[0], { fromNav: true });
         }
     } catch (err) {
-        console.error('Navigation error:', err);
+        console.error('navigateViewer:', err);
     } finally {
         state.isNavigating = false;
         updateViewerNavButtons();
     }
 }
 
-export async function openViewer(post) {
+export async function openViewer(post, opts = {}) {
+    bindViewerNavigation();
+    try {
+        if (document.activeElement && typeof document.activeElement.blur === 'function') {
+            document.activeElement.blur();
+        }
+    } catch (_) {}
     if (state.currentViewerMedia) {
         if (typeof state.currentViewerMedia.pause === 'function') state.currentViewerMedia.pause();
         if (state.currentViewerMedia.src) {
@@ -551,7 +576,6 @@ export async function openViewer(post) {
     }
     viewerImage.innerHTML = '';
     state.viewerCloseRequested = false;
-    state.isNavigating = false;
 
     viewer.classList.remove('hidden');
     document.body.style.overflow = 'hidden';
@@ -572,6 +596,18 @@ export async function openViewer(post) {
     renderViewerTags(tags);
     renderViewerActions(post);
     state.currentMediaId = post.id;
+    if (!opts.fromNav) {
+        state.viewerPlaylist = (state.posts || []).slice();
+        const found = state.viewerPlaylist.findIndex((p) => p && String(p.id) === String(post.id));
+        state.viewerPlaylistIndex = found >= 0 ? found : 0;
+        state.currentPostIndex = state.viewerPlaylistIndex;
+    } else {
+        const found = (state.viewerPlaylist || []).findIndex((p) => p && String(p.id) === String(post.id));
+        if (found >= 0) {
+            state.viewerPlaylistIndex = found;
+            state.currentPostIndex = found;
+        }
+    }
 
     viewerImage.innerHTML = '';
     const container = document.createElement('div');
@@ -672,17 +708,124 @@ export function closeViewerFn() {
 }
 
 export function updateViewerNavButtons() {
-    if (!viewerNavPrev || !viewerNavNext) return;
-    const items = state.posts;
-    if (!items.length) {
-        viewerNavPrev.style.display = 'none';
-        viewerNavNext.style.display = 'none';
-        return;
+    const prev = document.getElementById('viewerNavPrev');
+    const next = document.getElementById('viewerNavNext');
+    if (!prev || !next) return;
+    const list = (state.viewerPlaylist && state.viewerPlaylist.length)
+        ? state.viewerPlaylist
+        : (state.posts || []);
+    let idx = Number(state.viewerPlaylistIndex);
+    if (!Number.isFinite(idx)) idx = 0;
+    if (state.currentMediaId != null) {
+        const found = list.findIndex((p) => p && String(p.id) === String(state.currentMediaId));
+        if (found >= 0) idx = found;
     }
-    const canPrev = state.currentPostIndex > 0 || state.page > 0;
-    const canNext = state.currentPostIndex < items.length - 1 || state.page < state.totalPages - 1;
-    viewerNavPrev.style.display = canPrev ? 'flex' : 'none';
-    viewerNavNext.style.display = canNext ? 'flex' : 'none';
+    const canPrev = idx > 0 || state.page > 0;
+    const canNext = idx < list.length - 1 || state.page < (state.totalPages || 0) - 1;
+    prev.disabled = !canPrev;
+    next.disabled = !canNext;
+    prev.removeAttribute('hidden');
+    next.removeAttribute('hidden');
+    prev.style.display = 'flex';
+    next.style.display = 'flex';
+    prev.style.pointerEvents = canPrev ? 'auto' : 'none';
+    next.style.pointerEvents = canNext ? 'auto' : 'none';
+}
+
+let viewerNavBound = false;
+
+export function bindViewerNavigation() {
+    if (viewerNavBound) return;
+    viewerNavBound = true;
+
+    const onPrev = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        navigateViewer(-1);
+    };
+    const onNext = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        navigateViewer(1);
+    };
+
+    const prev = document.getElementById('viewerNavPrev');
+    const next = document.getElementById('viewerNavNext');
+    if (prev) prev.addEventListener('click', onPrev);
+    if (next) next.addEventListener('click', onNext);
+
+    window.addEventListener('keydown', (e) => {
+        if (!viewer || viewer.classList.contains('hidden')) return;
+
+        const active = document.activeElement;
+        const tag = active && active.tagName ? active.tagName.toUpperCase() : '';
+        const typing =
+            tag === 'TEXTAREA' ||
+            (tag === 'INPUT' &&
+                !['button', 'checkbox', 'radio', 'range', 'submit', 'reset', 'file'].includes(
+                    String(active.type || '').toLowerCase()
+                ));
+
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            e.stopPropagation();
+            closeViewerFn();
+            return;
+        }
+
+        if (typing) return;
+
+        const video = viewer.querySelector('video');
+
+        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+            if (!video) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const step = 0.05;
+            let newVol = video.volume + (e.key === 'ArrowUp' ? step : -step);
+            newVol = Math.max(0, Math.min(1, newVol));
+            video.volume = newVol;
+            try { localStorage.setItem('video_volume', String(newVol)); } catch (_) {}
+            if (video._volumeSlider) video._volumeSlider.value = newVol;
+            if (video._volumeBtn) {
+                video._volumeBtn.innerHTML = newVol > 0 ? icons.volume : icons.volumeOff;
+            }
+            return;
+        }
+
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+            if (e.shiftKey && video) {
+                e.preventDefault();
+                e.stopPropagation();
+                const delta = e.key === 'ArrowRight' ? 5 : -5;
+                const duration = video.duration || 0;
+                let newTime = Math.max(0, Math.min(duration, (video.currentTime || 0) + delta));
+                video.currentTime = newTime;
+                if (duration > 0) {
+                    const percent = (newTime / duration) * 100;
+                    if (video._progressFill) video._progressFill.style.width = percent + '%';
+                    if (video._thumb) video._thumb.style.left = percent + '%';
+                    if (video._timeDisplay) {
+                        video._timeDisplay.textContent = `${formatTime(newTime)} / ${formatTime(duration)}`;
+                    }
+                }
+                return;
+            }
+            if (e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
+            e.preventDefault();
+            e.stopPropagation();
+            navigateViewer(e.key === 'ArrowLeft' ? -1 : 1);
+            return;
+        }
+
+        if ((e.key === ' ' || e.key === 'Spacebar') && !e.repeat) {
+            if (!video) return;
+            e.preventDefault();
+            e.stopPropagation();
+            if (video.paused) video.play().catch(() => {});
+            else video.pause();
+        }
+    }, true);
 }
 
 export function renderViewerTags(tags) {
@@ -776,8 +919,21 @@ export async function renderViewerActions(post) {
         }
     });
 
+    const similarBtn = document.createElement('button');
+    similarBtn.className = 'viewer-btn';
+    similarBtn.innerHTML = `${icons.search || ''} ${t('findSimilar') || 'Find similar'}`;
+    similarBtn.addEventListener('click', () => {
+        state.tags = `similar:${post.id}`;
+        state.page = 0;
+        if (tagInput) tagInput.value = '';
+        updateActiveTagsDisplay();
+        closeViewerFn();
+        loadMedia(0);
+    });
+
     viewerActions.appendChild(favoriteBtn);
     viewerActions.appendChild(downloadBtn);
+    viewerActions.appendChild(similarBtn);
     viewerActions.appendChild(editInfoBtnAction);
     viewerActions.appendChild(editTagsBtnAction);
     viewerActions.appendChild(deleteBtn);
@@ -1270,6 +1426,7 @@ export async function saveEditedTags() {
 }
 
 let statusPollingInterval = null;
+let statusDoneNotified = false;
 let currentProgressElement = null;
 
 export function clearProgress() {
@@ -1896,6 +2053,7 @@ export async function submitImportWithStages() {
 
     const hash = commitResult.hash;
     if (statusPollingInterval) clearInterval(statusPollingInterval);
+    statusDoneNotified = false;
     statusPollingInterval = setInterval(async () => {
         try {
             const statusResponse = await fetch(`/api/status?hash=${hash}`);
@@ -1918,6 +2076,8 @@ export async function submitImportWithStages() {
             } else if (status.stage === 'done') {
                 clearInterval(statusPollingInterval);
                 statusPollingInterval = null;
+                if (statusDoneNotified) return;
+                statusDoneNotified = true;
                 clearProgress();
                 const doneEl = document.getElementById('uploadCompleteStatus');
                 if (doneEl) {
@@ -2142,6 +2302,7 @@ export async function submitUploadWithStages() {
     }
 
     if (statusPollingInterval) clearInterval(statusPollingInterval);
+    statusDoneNotified = false;
     statusPollingInterval = setInterval(async () => {
         try {
             const statusResponse = await fetch(`/api/status?hash=${hash}`);
@@ -2166,6 +2327,8 @@ export async function submitUploadWithStages() {
             } else if (status.stage === 'done') {
                 clearInterval(statusPollingInterval);
                 statusPollingInterval = null;
+                if (statusDoneNotified) return;
+                statusDoneNotified = true;
                 clearProgress();
                 const statusEl = document.getElementById('uploadCompleteStatus');
                 if (statusEl) {

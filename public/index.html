@@ -64,10 +64,10 @@
     
     <div id="viewer" class="viewer hidden">
         <div class="viewer-overlay"></div>
-        <button id="viewerNavPrev" class="viewer-nav-btn viewer-nav-prev"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></button>
-        <button id="viewerNavNext" class="viewer-nav-btn viewer-nav-next"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></button>
+        <button type="button" id="viewerNavPrev" class="viewer-nav-btn viewer-nav-prev" aria-label="Previous"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></button>
+        <button type="button" id="viewerNavNext" class="viewer-nav-btn viewer-nav-next" aria-label="Next"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></button>
         <div class="viewer-content">
-            <button id="closeViewer" class="viewer-close"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+            <button type="button" id="closeViewer" class="viewer-close"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
             <div id="viewerImage" class="viewer-image"></div>
             <aside class="viewer-sidebar">
                 <section><h3 data-i18n="information"></h3><div id="viewerInfo"></div></section>
@@ -225,7 +225,7 @@
                 <button class="settings-tab" data-tab="account" data-i18n="account"></button>
                 <button class="settings-tab" data-tab="booru" data-i18n="booruTab">Booru</button>
                 <button class="settings-tab" data-tab="tags" data-i18n="tagsTab">Tags</button>
-                <button class="settings-tab" data-tab="duplicates" data-i18n="duplicatesTab">Duplicates</button>
+                <button class="settings-tab" data-tab="duplicates" data-i18n="duplicatesTab">CLIP</button>
                 <button class="settings-tab" data-tab="language" data-i18n="language"></button>
                 <button class="settings-tab admin-only hidden" data-tab="server" data-i18n="server"></button>
                 <button class="settings-tab admin-only hidden" data-tab="users" data-i18n="users"></button>
@@ -274,6 +274,19 @@
                             <input type="password" id="confirmPassword" />
                         </div>
                         <button id="changePasswordBtn" class="primary-btn" data-i18n="changePassword"></button>
+                        <div class="setting-divider"></div>
+                        <h4 data-i18n="userDataTitle">Data</h4>
+                        <p class="setting-hint" data-i18n="userDataHint">Export or import all your media, tags and settings (encrypted archive).</p>
+                        <div class="dup-btn-row">
+                            <button type="button" id="userExportBtn" class="primary-btn rounded" data-i18n="userExport">Export</button>
+                            <button type="button" id="userImportBtn" class="primary-btn rounded" data-i18n="userImport">Import</button>
+                            <input type="file" id="userImportFile" accept=".zip,.obexport" class="hidden" />
+                        </div>
+                        <div class="setting-item" style="margin-top:10px;">
+                            <label data-i18n="userImportPassword">Password (for import)</label>
+                            <input type="password" id="userImportPassword" autocomplete="current-password" />
+                        </div>
+                        <p id="userDataStatus" class="setting-hint"></p>
                     </div>
                 </div>
 
@@ -306,11 +319,6 @@
                                 <option value="en">English</option>
                                 <option value="ru">Русский</option>
                                 <option value="zh">中文</option>
-                                <option value="de">Deutsch</option>
-                                <option value="es">Español</option>
-                                <option value="fr">Français</option>
-                                <option value="pl">Polski</option>
-                                <option value="uk">Українська</option>
                             </select>
                         </div>
                         <p class="setting-hint" data-i18n="serverLanguageHint"></p>
@@ -345,101 +353,100 @@
                     </div>
                 </div>
 
-                <div class="settings-panel" id="panel-duplicates">
-                    <h3 data-i18n="duplicatesTab">Duplicates</h3>
+                                <div class="settings-panel" id="panel-duplicates">
+                    <h3 data-i18n="duplicatesTab">CLIP</h3>
+                    <p class="setting-hint" data-i18n="clipTabIntro">Duplicates, semantic search and models.</p>
 
                     <div class="dup-subtabs" id="dupSubtabs">
-                        <button type="button" class="dup-subtab active" data-dup-tab="general" data-i18n="dupTabGeneral">General</button>
-                        <button type="button" class="dup-subtab" data-dup-tab="images" data-i18n="dupTabImages">Images</button>
-                        <button type="button" class="dup-subtab" data-dup-tab="video" data-i18n="dupTabVideo">Video / GIF</button>
-                        <button type="button" class="dup-subtab" data-dup-tab="cross" data-i18n="dupTabCross">Cross-type</button>
+                        <button type="button" class="dup-subtab active" data-dup-tab="detect" data-i18n="dupTabDetect">Detection</button>
+                        <button type="button" class="dup-subtab" data-dup-tab="search" data-i18n="dupTabSearch">Search</button>
+                        <button type="button" class="dup-subtab" data-dup-tab="models" data-i18n="dupTabModels">Models</button>
                     </div>
 
-                    <div class="dup-subpanel active" id="dupPanelGeneral">
-                        <div class="settings-group">
-                            <div class="setting-item">
-                                <label data-i18n="dupConcurrency">Workers</label>
-                                <input type="number" id="dupConcurrency" value="4" min="1" max="8" />
+                    <div class="dup-subpanel active" id="dupPanelDetect">
+                        <div class="clip-card">
+                            <div class="clip-card-title" data-i18n="dupDetectTitle">Duplicate thresholds</div>
+                            <div class="clip-fields">
+                                <label class="dup-param-field">
+                                    <span data-i18n="dupCosine">CLIP similarity</span>
+                                    <input type="number" id="dupCosine" value="0.93" min="0.05" max="0.99" step="0.01" />
+                                </label>
+                                <label class="dup-param-field">
+                                    <span data-i18n="dupCrossCosine">CLIP cross-type</span>
+                                    <input type="number" id="dupCrossCosine" value="0.93" min="0.05" max="0.99" step="0.01" />
+                                </label>
+                                <label class="dup-param-field">
+                                    <span data-i18n="dupConcurrency">Workers</span>
+                                    <input type="number" id="dupConcurrency" value="4" min="1" max="8" />
+                                </label>
                             </div>
-                            <div class="setting-item">
-                                <label data-i18n="dupThreshold">dHash threshold</label>
-                                <input type="number" id="dupThreshold" value="5" min="1" max="16" />
-                            </div>
-                            <div class="setting-item setting-item-switch">
+                            <div class="setting-item setting-item-switch" style="margin-top:12px;">
                                 <span class="switch-text" data-i18n="dupSameTypeOnly">Same type only</span>
                                 <label class="switch">
                                     <input type="checkbox" id="dupSameTypeOnly" />
                                     <span class="switch-slider"></span>
                                 </label>
                             </div>
+                            <p class="setting-hint" data-i18n="dupDetectHint">Higher similarity = fewer, stricter matches. Scan rebuilds the pairs table.</p>
+                        </div>
+                        <!-- hidden legacy fields for API compat -->
+                        <input type="hidden" id="dupThreshold" value="5" />
+                        <input type="hidden" id="dupInterval" value="1" />
+                        <input type="hidden" id="dupMinHits" value="4" />
+                        <input type="hidden" id="dupMinGifHits" value="2" />
+                        <input type="hidden" id="dupMinImageVideoHits" value="2" />
+                        <input type="hidden" id="dupMinGifVideoHits" value="2" />
+                    </div>
+
+                    <div class="dup-subpanel" id="dupPanelSearch">
+                        <div class="clip-card">
+                            <div class="clip-card-title" data-i18n="dupSearchTitle">Semantic search</div>
+                            <div class="clip-fields">
+                                <label class="dup-param-field">
+                                    <span data-i18n="clipSearchMin">search: min similarity</span>
+                                    <input type="number" id="clipSearchMin" value="0.23" min="0.10" max="0.60" step="0.01" />
+                                </label>
+                                <label class="dup-param-field">
+                                    <span data-i18n="clipSimilarMin">Find similar min similarity</span>
+                                    <input type="number" id="clipSimilarMin" value="0.70" min="0.50" max="0.99" step="0.01" />
+                                </label>
+                            </div>
+                            <p class="setting-hint" data-i18n="clipSearchSettingsHint">Higher = stricter. Applies to search: and Find similar.</p>
                         </div>
                     </div>
 
-                    <div class="dup-subpanel" id="dupPanelImages">
-                        <div class="settings-group">
-                            <div class="setting-item">
-                                <label data-i18n="dupCosine">CLIP similarity</label>
-                                <input type="number" id="dupCosine" value="0.93" min="0.80" max="0.99" step="0.01" />
-                            </div>
+                    <div class="dup-subpanel" id="dupPanelModels">
+                        <div id="clipEmbedStatus" class="setting-hint"></div>
+                        <div class="dup-btn-row" id="clipRebuildRow" style="margin-bottom:12px;">
+                            <button type="button" id="clipRebuildBtn" class="primary-btn rounded hidden" data-i18n="clipRebuildEmbeddings">Recalculate embeddings</button>
                         </div>
+                        <div id="clipModelsList" class="clip-models-list">
+                            <p class="setting-hint" data-i18n="loading">Loading…</p>
+                        </div>
+                        <p class="setting-hint">
+                            <a id="clipHubLink" href="https://huggingface.co/models?library=transformers.js&amp;search=clip" target="_blank" rel="noopener noreferrer" data-i18n="clipHubLink">Browse CLIP models on Hugging Face ↗</a>
+                        </p>
+                        <p id="clipRescanHint" class="setting-hint access-restart-hint hidden" data-i18n="clipRescanHint"></p>
                     </div>
 
-                    <div class="dup-subpanel" id="dupPanelVideo">
-                        <div class="settings-group">
-                            <div class="setting-item">
-                                <label data-i18n="dupInterval">Frame interval (sec)</label>
-                                <input type="number" id="dupInterval" value="3" min="0.25" max="30" step="0.25" />
-                            </div>
-                            <div class="setting-item">
-                                <label data-i18n="dupMinHits">Min hits video↔video</label>
-                                <input type="number" id="dupMinHits" value="4" min="1" max="20" />
-                            </div>
-                            <div class="setting-item">
-                                <label data-i18n="dupMinGifHits">Min hits gif↔gif</label>
-                                <input type="number" id="dupMinGifHits" value="2" min="1" max="10" />
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="dup-subpanel" id="dupPanelCross">
-                        <div class="settings-group">
-                            <div class="setting-item">
-                                <label data-i18n="dupCrossCosine">CLIP cross-type</label>
-                                <input type="number" id="dupCrossCosine" value="0.90" min="0.80" max="0.99" step="0.01" />
-                            </div>
-                            <div class="setting-item">
-                                <label data-i18n="dupMinImageVideoHits">Min hits image↔video</label>
-                                <input type="number" id="dupMinImageVideoHits" value="2" min="1" max="10" />
-                            </div>
-                            <div class="setting-item">
-                                <label data-i18n="dupMinGifVideoHits">Min hits gif↔video</label>
-                                <input type="number" id="dupMinGifVideoHits" value="2" min="1" max="10" />
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="dup-btn-row">
-                        <button id="dupScanBtn" class="primary-btn rounded" data-i18n="dupStartScan">Scan</button>
-                        <button id="dupReviewBtn" class="primary-btn rounded hidden" data-i18n="dupReviewBtn">Review</button>
+                    <div class="dup-btn-row clip-actions-bar">
+                        <button type="button" id="clipSettingsSave" class="primary-btn rounded" data-i18n="saveSettings">Save</button>
+                        <button type="button" id="dupScanBtn" class="primary-btn rounded" data-i18n="dupStartScan">Scan</button>
+                        <button type="button" id="dupReviewBtn" class="primary-btn rounded" data-i18n="dupReviewBtn">Review</button>
                     </div>
                     <div id="dupScanStatus" class="dup-status"></div>
                 </div>
 
-                <div class="settings-panel" id="panel-language">
+<div class="settings-panel" id="panel-language">
                     <h3 data-i18n="language"></h3>
                     <div class="settings-group">
                         <div class="setting-item">
                             <label data-i18n="selectLanguage"></label>
                             <select id="languageSelect">
-                                <option value="en">English</option>
-                                <option value="ru">Русский</option>
-                                <option value="zh">中文</option>
-                                <option value="de">Deutsch</option>
-                                <option value="es">Español</option>
-                                <option value="fr">Français</option>
-                                <option value="pl">Polski</option>
-                                <option value="uk">Українська</option>
-                            </select>
+                        <option value="en">English</option>
+                        <option value="ru">Русский</option>
+                        <option value="zh">中文</option>
+                    </select>
                         </div>
                         <button id="saveLanguageBtn" class="primary-btn" data-i18n="applyLanguage"></button>
                     </div>
@@ -455,7 +462,7 @@
     </div>
 
     
-    <div id="dupReviewModal" class="modal hidden">
+        <div id="dupReviewModal" class="modal hidden">
         <div class="modal-overlay" id="dupReviewOverlay"></div>
         <div class="modal-content settings-modal dup-review-modal">
             <button type="button" class="modal-close" id="dupReviewClose" aria-label="Close">
@@ -466,29 +473,58 @@
                 <p id="dupReviewMeta" class="setting-hint"></p>
             </div>
             <div class="dup-review-body">
-                <div class="dup-pair">
-                    <div class="dup-side" id="dupSideA">
+                <div id="dupReviewPanelGallery" class="dup-review-panel active">
+                    <div id="dupPairsGallery" class="dup-pairs-gallery"></div>
+                    <div id="dupPairsEmpty" class="empty-state hidden" data-i18n="dupNoPairs">No near-duplicates found</div>
+                    <div id="dupPairsPager" class="pagination-bar dup-pairs-pager hidden">
+                        <button type="button" id="dupPairsPrev" class="pagination-btn" aria-label="Previous">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+                        </button>
+                        <div id="dupPairsPageInfo" class="pagination-pages"></div>
+                        <button type="button" id="dupPairsNext" class="pagination-btn" aria-label="Next">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="dupCompareModal" class="modal hidden">
+        <div class="modal-overlay" id="dupCompareOverlay"></div>
+        <div class="modal-content settings-modal dup-compare-modal">
+            <button type="button" class="modal-close" id="dupCompareClose" aria-label="Close">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+            <div class="settings-header dup-review-header">
+                <h2 data-i18n="dupReviewTabCompare">Compare</h2>
+                <p id="dupCompareMeta" class="setting-hint"></p>
+            </div>
+            <div class="dup-review-body">
+                <div class="dup-gallery-card">
+                    <div class="dup-gallery-half" id="dupSideA">
                         <div class="dup-media" id="dupMediaA"></div>
                         <div class="dup-player-bar" id="dupPlayerA"></div>
                         <div class="dup-info" id="dupInfoA"></div>
-                        <button type="button" class="dup-card-btn dup-delete-btn" data-side="a" data-i18n="dupDeleteThis">Удалить</button>
                     </div>
-                    <div class="dup-side" id="dupSideB">
+                    <div class="dup-gallery-divider" aria-hidden="true"></div>
+                    <div class="dup-gallery-half" id="dupSideB">
                         <div class="dup-media" id="dupMediaB"></div>
                         <div class="dup-player-bar" id="dupPlayerB"></div>
                         <div class="dup-info" id="dupInfoB"></div>
-                        <button type="button" class="dup-card-btn dup-delete-btn" data-side="b" data-i18n="dupDeleteThis">Удалить</button>
                     </div>
                 </div>
-                <div class="dup-actions">
+                <div class="dup-actions dup-compare-actions">
+                    <button type="button" class="dup-card-btn dup-delete-btn" data-side="a" data-i18n="dupDeleteLeft">Delete left</button>
                     <button type="button" class="dup-skip-btn" id="dupSkipBtn" data-i18n="dupKeepBoth">Пропустить</button>
+                    <button type="button" class="dup-card-btn dup-delete-btn" data-side="b" data-i18n="dupDeleteRight">Delete right</button>
                 </div>
             </div>
         </div>
     </div>
 
     
-    <div id="authModal" class="modal hidden">
+<div id="authModal" class="modal hidden">
         <div class="modal-overlay"></div>
         <div class="modal-content auth-modal">
             <div class="auth-brand">

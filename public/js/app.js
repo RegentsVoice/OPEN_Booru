@@ -411,83 +411,88 @@ function bindEvents() {
     saveDisplaySettingsBtn.addEventListener('click', applyDisplaySettings);
     changeUsernameBtn.addEventListener('click', changeUsername);
     changePasswordBtn.addEventListener('click', changePassword);
+
+    const userExportBtn = document.getElementById('userExportBtn');
+    const userImportBtn = document.getElementById('userImportBtn');
+    const userImportFile = document.getElementById('userImportFile');
+    const userDataStatus = document.getElementById('userDataStatus');
+    if (userExportBtn) {
+        userExportBtn.addEventListener('click', async () => {
+            if (userDataStatus) userDataStatus.textContent = t('userExportStarting') || 'Exporting…';
+            try {
+                const res = await fetch('/api/user/export');
+                if (!res.ok) {
+                    let msg = 'Export failed';
+                    try { const j = await res.json(); msg = j.error || msg; } catch (_) {}
+                    throw new Error(msg);
+                }
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = 'open-booru-export.zip';
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                URL.revokeObjectURL(url);
+                if (userDataStatus) userDataStatus.textContent = t('userExportDone') || 'Export done';
+                showToast(t('userExportDone') || 'Export done', 'success');
+            } catch (err) {
+                if (userDataStatus) userDataStatus.textContent = err.message;
+                showToast(err.message, 'error');
+            }
+        });
+    }
+    if (userImportBtn && userImportFile) {
+        userImportBtn.addEventListener('click', () => userImportFile.click());
+        userImportFile.addEventListener('change', async () => {
+            const file = userImportFile.files && userImportFile.files[0];
+            userImportFile.value = '';
+            if (!file) return;
+            const password = (document.getElementById('userImportPassword') || {}).value || '';
+            if (!password) {
+                showToast(t('userImportPasswordRequired') || 'Enter password for import', 'error');
+                return;
+            }
+            if (!confirm(t('userImportConfirm') || 'Replace all your data with the archive?')) return;
+            if (userDataStatus) userDataStatus.textContent = t('userImportStarting') || 'Importing…';
+            try {
+                const fd = new FormData();
+                fd.append('file', file);
+                fd.append('password', password);
+                const res = await fetch('/api/user/import', { method: 'POST', body: fd });
+                const data = await res.json();
+                if (!data.success) throw new Error(data.error || 'Import failed');
+                if (userDataStatus) userDataStatus.textContent = t('userImportDone') || 'Import done';
+                showToast(t('userImportDone') || 'Import done — reloading', 'success');
+                setTimeout(() => location.reload(), 800);
+            } catch (err) {
+                if (userDataStatus) userDataStatus.textContent = err.message;
+                showToast(err.message, 'error');
+            }
+        });
+    }
+
     saveLanguageBtn.addEventListener('click', saveLanguage);
     if (saveAccessSettingsBtn) saveAccessSettingsBtn.addEventListener('click', saveAccessSettings);
 
-    viewerNavPrev.addEventListener('click', () => navigateViewer(-1));
-    viewerNavNext.addEventListener('click', () => navigateViewer(1));
+    import('./media-ui.js').then((m) => {
+        if (m.bindViewerNavigation) m.bindViewerNavigation();
+    }).catch(() => {});
 
     document.addEventListener('keydown', (e) => {
-        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-            const video = viewer.querySelector('video');
-            if (video) {
-                e.preventDefault();
-                e.stopPropagation();
-                const step = 0.05;
-                let newVol = video.volume + (e.key === 'ArrowUp' ? step : -step);
-                newVol = Math.max(0, Math.min(1, newVol));
-                video.volume = newVol;
-                localStorage.setItem('video_volume', newVol);
-                if (video._volumeSlider) video._volumeSlider.value = newVol;
-                if (video._volumeBtn) {
-                    video._volumeBtn.innerHTML = newVol > 0 ? icons.volume : icons.volumeOff;
-                }
-            }
-            return;
-        }
+        const viewerEl = document.getElementById('viewer');
+        const viewerOpen = viewerEl && !viewerEl.classList.contains('hidden');
 
         if (e.key === 'Escape') {
-            if (!viewer.classList.contains('hidden')) closeViewerFn();
+            if (viewerOpen) return;
             if (!uploadModal.classList.contains('hidden')) closeUploadModalFn();
             if (!editTagsModal.classList.contains('hidden')) closeEditTagsModalFn();
             if (!editInfoModal.classList.contains('hidden')) closeEditInfoModalFn();
             if (!modalElement.classList.contains('hidden')) closeModal();
             if (!userModal.classList.contains('hidden')) closeUserModalFn();
-            return;
         }
-
-        if (viewer.classList.contains('hidden')) return;
-        const active = document.activeElement;
-        if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return;
-
-        if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
-            if (e.shiftKey) {
-                const video = viewer.querySelector('video');
-                if (video) {
-                    e.preventDefault();
-                    const delta = e.key === 'ArrowRight' ? 5 : -5;
-                    let newTime = video.currentTime + delta;
-                    const duration = video.duration || 0;
-                    newTime = Math.max(0, Math.min(duration, newTime));
-                    video.currentTime = newTime;
-                    if (duration > 0) {
-                        const percent = (newTime / duration) * 100;
-                        if (video._progressFill) video._progressFill.style.width = percent + '%';
-                        if (video._thumb) video._thumb.style.left = percent + '%';
-                        if (video._timeDisplay) {
-                            video._timeDisplay.textContent = `${formatTime(newTime)} / ${formatTime(duration)}`;
-                        }
-                    }
-                }
-                return;
-            }
-            e.preventDefault();
-            const dir = e.key === 'ArrowRight' ? 1 : -1;
-            navigateViewer(dir);
-        }
-
-        if (e.key === ' ' || e.key === 'Spacebar') {
-            const video = viewer.querySelector('video');
-            if (video && !e.repeat) {
-                e.preventDefault();
-                if (video.paused) {
-                    video.play().catch(() => {});
-                } else {
-                    video.pause();
-                }
-            }
-        }
-    });
+    }, true);
 }
 
 (async function init() {

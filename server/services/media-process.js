@@ -240,6 +240,12 @@ export async function processMedia(hash, data) {
         updateStatus(hash, 'done', 100, 'Done');
         uploadData.delete(hash);
         logger.info(st('processingComplete', { hash }));
+
+        import('./duplicates.js').then(({ embedSingleMedia }) => {
+            embedSingleMedia(dbBid, mediaId).catch((e) => {
+                logger.warn(`auto-embed ${mediaId}: ${e.message}`);
+            });
+        }).catch(() => {});
     } catch (err) {
         logger.error(st('processingError', { hash, error: err.message }));
         updateStatus(hash, 'error', 0, err.message);

@@ -8,7 +8,8 @@ import {
     getCurrentPair,
     resolvePair,
     deleteMediaById,
-    ensurePhashSchema
+    ensurePhashSchema,
+    loadPairsFromDb
 } from '../services/duplicates.js';
 import { logger } from '../config.js';
 
@@ -52,6 +53,7 @@ function serializePair(pair) {
         a: slim(pair.a),
         b: slim(pair.b),
         distance: pair.distance,
+        similarity: pair.similarity != null ? pair.similarity : null,
         reason: pair.reason,
         aTime: pair.aTime,
         bTime: pair.bTime,
@@ -76,7 +78,8 @@ export function registerDuplicateRoutes(app) {
                 minGifVideoHits: body.minGifVideoHits,
                 cosineThreshold: body.cosineThreshold,
                 crossTypeCosine: body.crossTypeCosine,
-                sameTypeOnly: body.sameTypeOnly
+                sameTypeOnly: body.sameTypeOnly,
+                forceRecompute: body.forceRecompute
             });
             res.json({
                 success: true,
@@ -104,7 +107,8 @@ export function registerDuplicateRoutes(app) {
                 minGifVideoHits: body.minGifVideoHits,
                 cosineThreshold: body.cosineThreshold,
                 crossTypeCosine: body.crossTypeCosine,
-                sameTypeOnly: body.sameTypeOnly
+                sameTypeOnly: body.sameTypeOnly,
+                forceRecompute: body.forceRecompute
             });
             const pair = getCurrentPair(dbBid);
             res.json({
@@ -115,6 +119,29 @@ export function registerDuplicateRoutes(app) {
         } catch (err) {
             logger.error(`duplicates review: ${err.message}`);
             res.status(400).json({ success: false, error: err.message });
+        }
+    });
+
+
+    app.get('/api/duplicates/pairs', (req, res) => {
+        const dbBid = getDbBid(req, res);
+        if (!dbBid) return;
+        try {
+            ensurePhashSchema(userDbs.get(dbBid).main);
+            const minSim = req.query.minSim != null ? parseFloat(req.query.minSim) : null;
+            const sameTypeOnly = req.query.sameTypeOnly === '1' || req.query.sameTypeOnly === 'true';
+            const pairs = loadPairsFromDb(dbBid, {
+                minSimilarity: Number.isFinite(minSim) ? minSim : null,
+                sameTypeOnly
+            });
+            res.json({
+                success: true,
+                pairs: pairs.map((p) => serializePair(p)).filter(Boolean),
+                count: pairs.length
+            });
+        } catch (err) {
+            logger.error(`duplicates pairs: ${err.message}`);
+            res.status(500).json({ success: false, error: err.message });
         }
     });
 
@@ -140,11 +167,16 @@ export function registerDuplicateRoutes(app) {
         const dbBid = getDbBid(req, res);
         if (!dbBid) return;
         try {
-            const { action, deleteId } = req.body || {};
+            const { action, deleteId, aId, bId } = req.body || {};
             if (action === 'delete' && deleteId) {
                 deleteMediaById(dbBid, parseInt(deleteId, 10));
             }
-            const result = resolvePair(dbBid, action === 'skip' ? 'skip' : 'delete');
+            const result = resolvePair(
+                dbBid,
+                action === 'skip' ? 'skip' : 'delete',
+                [],
+                aId != null && bId != null ? { aId, bId } : null
+            );
             res.json({
                 success: true,
                 done: result.done,
