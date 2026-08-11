@@ -47,7 +47,7 @@ Settings → **CLIP**:
 
 - Embeddings are computed with a local CLIP vision model (`@xenova/transformers`). New uploads are embedded incrementally.
 - Near-duplicate **pairs** are stored in a dedicated table after **Scan** and are not recomputed on every Review open.
-- **Review** opens a paginated gallery of pairs (card size follows the main gallery). Click a pair to open a full-screen comparison modal (media stretched like the viewer). Actions at the bottom: **Delete left** · **Skip** · **Delete right**.
+- **Review** opens gallery of pairs.
 - Requires **ffmpeg** for video/GIF frame sampling.
 
 **Semantic search**
@@ -190,8 +190,7 @@ http://localhost:3001
 1. Create the first account (it becomes admin / owner).  
 2. Upload media or import from supported boorus.  
 3. Organize with tags, favorites, and meta filters.  
-4. Optional: Settings → **CLIP** → install a model → **Scan** → **Review**.  
-5. Optional: Settings → **Account** → export a full encrypted backup or import one (password required).  
+
 
 ### License
 
@@ -235,7 +234,7 @@ http://localhost:3001
 
 - Эмбеддинги считает локальная CLIP vision-модель (`@xenova/transformers`). Новые загрузки обрабатываются сразу.
 - Пары дубликатов пишутся в отдельную таблицу после **Скана** и не пересчитываются при каждом открытии **Просмотра**.
-- **Просмотр** — галерея пар с пагинацией (размер карточек как в основной галерее). Клик по паре открывает модалку сравнения на весь экран. Снизу: **Удалить слева** · **Пропустить** · **Удалить справа**.
+- **Просмотр** — галерея пар.
 - Нужен **ffmpeg** для выборки кадров video/GIF.
 
 **Семантический поиск**
@@ -375,9 +374,7 @@ http://localhost:3001
 
 1. Создайте первый аккаунт (он станет владельцем / администратором).  
 2. Загружайте медиа или импортируйте с поддерживаемых борд.  
-3. Организуйте контент тегами, избранным и мета-фильтрами.  
-4. По желанию: Настройки → **CLIP** → установить модель → **Скан** → **Просмотр**.  
-5. По желанию: Настройки → **Аккаунт** → экспорт полного зашифрованного бэкапа или импорт (нужен пароль).  
+3. Организуйте контент тегами, избранному.
 
 ### Лицензия
 
